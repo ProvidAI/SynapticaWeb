@@ -17,6 +17,13 @@ from .web_search_tools import (
     check_data_source_credibility,
     research_best_practices,
 )
+from .research_verification_tools import (
+    verify_research_output,
+    calculate_quality_score,
+    check_citation_quality,
+    validate_statistical_significance,
+    generate_feedback_report,
+)
 
 __all__ = [
     "verify_task_result",
@@ -31,4 +38,9 @@ __all__ = [
     "verify_fact",
     "check_data_source_credibility",
     "research_best_practices",
+    "verify_research_output",
+    "calculate_quality_score",
+    "check_citation_quality",
+    "validate_statistical_significance",
+    "generate_feedback_report",
 ]

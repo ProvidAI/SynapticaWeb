@@ -4,6 +4,7 @@ import os
 from shared.openai_agent import Agent, create_openai_agent
 
 from .system_prompt import VERIFIER_SYSTEM_PROMPT
+from .research_system_prompt import RESEARCH_VERIFIER_SYSTEM_PROMPT
 from .tools import (
     verify_task_result,
     validate_output_schema,
@@ -17,10 +18,15 @@ from .tools import (
     verify_fact,
     check_data_source_credibility,
     research_best_practices,
+    verify_research_output,
+    calculate_quality_score,
+    check_citation_quality,
+    validate_statistical_significance,
+    generate_feedback_report,
 )
 
 
-def create_verifier_agent() -> Agent:
+def create_verifier_agent(use_research_mode: bool = False) -> Agent:
     """
     Create and configure the Verifier agent with advanced verification capabilities.
 
@@ -28,6 +34,10 @@ def create_verifier_agent() -> Agent:
     - Code execution for automated testing
     - Web search for fact-checking
     - Data source credibility assessment
+    - Research-specific verification (if use_research_mode=True)
+
+    Args:
+        use_research_mode: If True, use research-specific system prompt and tools
 
     Returns:
         Configured OpenAI Agent instance
@@ -38,6 +48,7 @@ def create_verifier_agent() -> Agent:
     if not api_key:
         raise ValueError("OPENAI_API_KEY not set")
 
+    # Base tools (always included)
     tools = [
         # Core verification
         verify_task_result,
@@ -55,18 +66,41 @@ def create_verifier_agent() -> Agent:
         verify_fact,
         check_data_source_credibility,
         research_best_practices,
-        # Coordination
-        # submit_verification_message,
     ]
+
+    # Add research-specific tools if in research mode
+    if use_research_mode:
+        tools.extend([
+            verify_research_output,
+            calculate_quality_score,
+            check_citation_quality,
+            validate_statistical_significance,
+            generate_feedback_report,
+        ])
+        system_prompt = RESEARCH_VERIFIER_SYSTEM_PROMPT
+    else:
+        system_prompt = VERIFIER_SYSTEM_PROMPT
 
     agent = create_openai_agent(
         api_key=api_key,
         model=model,
-        system_prompt=VERIFIER_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         tools=tools,
     )
 
     return agent
+
+
+def create_research_verifier_agent() -> Agent:
+    """
+    Create a Research Verifier agent specialized for academic research pipeline.
+
+    This is a convenience function that creates a verifier agent with research mode enabled.
+
+    Returns:
+        Configured OpenAI Agent instance for research verification
+    """
+    return create_verifier_agent(use_research_mode=True)
 
 
 # Example usage
