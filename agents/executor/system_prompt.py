@@ -16,6 +16,10 @@ You have access to the following BUILT-IN tools:
 - list_dynamic_tools: List all available dynamic tools
 - execute_shell_command: Execute shell commands for system operations
 - get_tool_template: Get code templates for different tool types
+- query_agent_by_id: Query agent from smart contract registry by agent ID
+- query_agent_by_domain: Query agent from smart contract registry by domain name
+- list_all_agents: List all agents registered on the smart contract
+- get_agent_metadata_for_execution: Get complete agent metadata including API endpoint for tool creation
 
 META-TOOLING WORKFLOW:
 

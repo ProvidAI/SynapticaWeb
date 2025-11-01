@@ -1,15 +1,20 @@
 """Executor Agent implementation with meta-tooling capabilities."""
 
 import os
+
 from shared.openai_agent import Agent, create_openai_agent
 
 from .system_prompt import EXECUTOR_SYSTEM_PROMPT
 from .tools import (
     create_dynamic_tool,
-    load_and_execute_tool,
-    list_dynamic_tools,
     execute_shell_command,
+    get_agent_metadata_for_execution,
     get_tool_template,
+    list_all_agents,
+    list_dynamic_tools,
+    load_and_execute_tool,
+    query_agent_by_domain,
+    query_agent_by_id,
 )
 
 
@@ -38,6 +43,11 @@ def create_executor_agent() -> Agent:
         list_dynamic_tools,  # List available tools
         execute_shell_command,  # Shell operations
         get_tool_template,  # Get templates for tool creation
+        # Contract query tools
+        query_agent_by_id,  # Query agent by ID from smart contract
+        query_agent_by_domain,  # Query agent by domain from smart contract
+        list_all_agents,  # List all agents on smart contract
+        get_agent_metadata_for_execution,  # Get complete agent metadata for tool creation
     ]
 
     agent = create_openai_agent(

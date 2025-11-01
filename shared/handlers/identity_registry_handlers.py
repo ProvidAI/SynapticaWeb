@@ -1,5 +1,6 @@
-from web3 import Web3
 import json
+
+from web3 import Web3
 
 # -------- CONFIG --------
 RPC_URL = "https://testnet.hashio.io/api"
