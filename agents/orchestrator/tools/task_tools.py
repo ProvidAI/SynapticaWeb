@@ -122,7 +122,7 @@ async def get_task(task_id: str) -> Dict[str, Any]:
             "updated_at": task.updated_at.isoformat(),
             "completed_at": task.completed_at.isoformat() if task.completed_at else None,
             "result": task.result,
-            "metadata": task.metadata,
+            "metadata": task.meta,
         }
     finally:
         db.close()

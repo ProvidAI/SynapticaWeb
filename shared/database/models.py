@@ -1,6 +1,18 @@
 """SQLAlchemy models for Hedera marketplace."""
 
-from sqlalchemy import Column, String, Integer, Float, DateTime, Text, JSON, ForeignKey, Enum, Boolean
+from sqlalchemy import (
+    Column,
+    String,
+    Integer,
+    Float,
+    DateTime,
+    Text,
+    JSON,
+    ForeignKey,
+    Enum,
+    Boolean,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -224,3 +236,21 @@ class AgentReputation(Base):
 
     # Relationships
     agent = relationship("Agent", foreign_keys=[agent_id])
+
+
+class A2AEvent(Base):
+    """Persisted A2A messages for auditing and dashboards."""
+
+    __tablename__ = "a2a_events"
+    __table_args__ = (UniqueConstraint("message_id", name="uq_a2a_events_message_id"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_id = Column(String, nullable=False)
+    protocol = Column(String, nullable=False)
+    message_type = Column(String, nullable=False)
+    from_agent = Column(String, nullable=False)
+    to_agent = Column(String, nullable=False)
+    thread_id = Column(String, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    tags = Column(JSON, nullable=True)
+    body = Column(JSON, nullable=False)

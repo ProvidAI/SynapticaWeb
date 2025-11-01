@@ -55,7 +55,7 @@ async def get_payment(payment_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Payment not found")
 
     payment_row: Any = payment  # Allow SQLAlchemy instrumented attributes
-    metadata = cast(Dict[str, Any], (payment_row.metadata or {}))
+    metadata = cast(Dict[str, Any], (payment_row.meta or {}))
 
     return PaymentResponse(
         id=str(payment_row.id),
@@ -89,7 +89,7 @@ async def list_payments(
     responses: List[PaymentResponse] = []
     for payment in payments:
         payment_row = cast(Any, payment)
-        metadata = cast(Dict[str, Any], (payment_row.metadata or {}))
+        metadata = cast(Dict[str, Any], (payment_row.meta or {}))
         responses.append(
             PaymentResponse(
                 id=str(payment_row.id),

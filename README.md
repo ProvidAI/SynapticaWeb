@@ -59,7 +59,7 @@ x402 Payment Dynamic Tools Checks
 
 ```python
 # 1. Negotiator discovers an agent
-agents = await discover_agents_by_capability("data-analysis")
+agents = await find_agents("data-analysis")
 # Returns: Agent metadata with API spec
 
 # 2. Executor receives metadata
@@ -192,6 +192,26 @@ API_SECRET_KEY=<generate with: openssl rand -hex 32>
 ```
 
 ## Usage
+
+### Run Agents as A2A Services (optional)
+
+Each specialist agent can be hosted as a lightweight HTTP service using the bundled A2A shim.
+This lets the orchestrator delegate work over the network instead of instantiating agents
+locally. In separate terminals run:
+
+```bash
+python -m agents.negotiator.server
+python -m agents.executor.server
+python -m agents.verifier.server
+```
+
+Configure endpoint URLs in `.env` via `NEGOTIATOR_A2A_URL`, `EXECUTOR_A2A_URL`, and
+`VERIFIER_A2A_URL`. When unset, the orchestrator falls back to in-process execution.
+
+Emitted A2A envelopes (proposal, authorized, released, refunded) are now persisted
+for dashboards. Query `GET /a2a/events` on the API to inspect the latest traffic, or
+add a webhook target by setting `A2A_EVENT_WEBHOOK_URL` to a comma-separated list of
+endpoints.
 
 ### Start API Server
 

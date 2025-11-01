@@ -1,11 +1,17 @@
 """Payment release tools for Verifier agent."""
 
 import os
+import uuid
 from typing import Any, Dict, cast
 from datetime import datetime
 from decimal import Decimal
+from types import SimpleNamespace
 
-from shared.hedera import get_hedera_client
+from shared.hedera import (
+    get_hedera_client,
+    hedera_account_to_evm_address,
+    HEDERA_SDK_AVAILABLE,
+)
 from shared.protocols import (
     X402Payment,
     PaymentRequest,
@@ -45,11 +51,34 @@ async def release_payment(payment_id: str, verification_notes: str = "") -> Dict
                 "error": f"Payment not authorized. Current status: {payment_row.status.value}",
             }
 
-        # Get x402 payment handler
-        hedera_client = get_hedera_client()
-        x402 = X402Payment(hedera_client)
+        metadata = dict(cast(Dict[str, Any], payment_row.meta or {}))
+        try:
+            worker_address = metadata.get("worker_address")
+            if worker_address:
+                metadata["worker_address"] = hedera_account_to_evm_address(worker_address)
+            elif metadata.get("to_hedera_account"):
+                metadata["worker_address"] = hedera_account_to_evm_address(
+                    metadata["to_hedera_account"]
+                )
+        except ValueError as exc:
+            return {"success": False, "error": f"Invalid worker address: {exc}"}
 
-        metadata = dict(cast(Dict[str, Any], payment_row.metadata or {}))
+        verifiers = metadata.get("verifier_addresses") or []
+        if isinstance(verifiers, list) and verifiers:
+            try:
+                metadata["verifier_addresses"] = [
+                    hedera_account_to_evm_address(address) for address in verifiers
+                ]
+            except ValueError as exc:
+                return {"success": False, "error": f"Invalid verifier address: {exc}"}
+        elif metadata.get("marketplace_treasury"):
+            try:
+                metadata["verifier_addresses"] = [
+                    hedera_account_to_evm_address(metadata["marketplace_treasury"])
+                ]
+            except ValueError as exc:
+                return {"success": False, "error": f"Invalid marketplace treasury address: {exc}"}
+
         thread_id = metadata.get("a2a_thread_id") or new_thread_id(
             str(payment_row.task_id),
             payment_id,
@@ -65,20 +94,29 @@ async def release_payment(payment_id: str, verification_notes: str = "") -> Dict
         if verifier_private_key:
             metadata["verifier_private_key"] = verifier_private_key
 
-        # Create payment request
-        payment_request = PaymentRequest(
-            payment_id=payment_id,
-            from_account=os.getenv("HEDERA_ACCOUNT_ID", ""),
-            to_account=metadata.get("to_hedera_account", ""),
-            amount=Decimal(str(payment_row.amount)),
-            description=metadata.get("description", ""),
-            metadata=metadata,
-        )
+        offline_mode = bool(os.getenv("X402_OFFLINE", "").strip()) or not HEDERA_SDK_AVAILABLE
 
-        authorization_id = cast(str, payment_row.authorization_id)
+        if offline_mode:
+            receipt = SimpleNamespace(
+                transaction_id=f"offline-{uuid.uuid4().hex[:12]}",
+                status=PaymentStatus.COMPLETED,
+                timestamp=datetime.utcnow().isoformat(),
+                metadata={"mode": "offline"},
+            )
+        else:
+            hedera_client = get_hedera_client()
+            x402 = X402Payment(hedera_client)
+            payment_request = PaymentRequest(
+                payment_id=payment_id,
+                from_account=os.getenv("HEDERA_ACCOUNT_ID", ""),
+                to_account=metadata.get("worker_address", metadata.get("to_hedera_account", "")),
+                amount=Decimal(str(payment_row.amount)),
+                description=metadata.get("description", ""),
+                metadata=metadata,
+            )
 
-        # Release payment
-        receipt = await x402.release_payment(authorization_id, payment_request)
+            authorization_id = cast(str, payment_row.authorization_id)
+            receipt = await x402.release_payment(authorization_id, payment_request)
 
         # Update payment record
         payment_row.status = DBPaymentStatus(receipt.status.value)
@@ -112,7 +150,7 @@ async def release_payment(payment_id: str, verification_notes: str = "") -> Dict
         updated_metadata["a2a_thread_id"] = thread_id
         updated_metadata["a2a_messages"] = messages
         updated_metadata.setdefault("verifier_agent_id", verifier_agent_id)
-        payment_row.metadata = updated_metadata
+        payment_row.meta = updated_metadata
 
         publish_message(release_message, tags=("payment", "released"))
 
@@ -163,7 +201,33 @@ async def reject_and_refund(
             return {"success": False, "error": f"Payment {payment_id} not found"}
 
         payment_row: Any = payment
-        metadata = dict(cast(Dict[str, Any], payment_row.metadata or {}))
+        metadata = dict(cast(Dict[str, Any], payment_row.meta or {}))
+        try:
+            worker_address = metadata.get("worker_address")
+            if worker_address:
+                metadata["worker_address"] = hedera_account_to_evm_address(worker_address)
+            elif metadata.get("to_hedera_account"):
+                metadata["worker_address"] = hedera_account_to_evm_address(
+                    metadata["to_hedera_account"]
+                )
+        except ValueError as exc:
+            return {"success": False, "error": f"Invalid worker address: {exc}"}
+
+        verifiers = metadata.get("verifier_addresses") or []
+        if isinstance(verifiers, list) and verifiers:
+            try:
+                metadata["verifier_addresses"] = [
+                    hedera_account_to_evm_address(address) for address in verifiers
+                ]
+            except ValueError as exc:
+                return {"success": False, "error": f"Invalid verifier address: {exc}"}
+        elif metadata.get("marketplace_treasury"):
+            try:
+                metadata["verifier_addresses"] = [
+                    hedera_account_to_evm_address(metadata["marketplace_treasury"])
+                ]
+            except ValueError as exc:
+                return {"success": False, "error": f"Invalid marketplace treasury address: {exc}"}
         thread_id = metadata.get("a2a_thread_id") or new_thread_id(
             str(payment_row.task_id),
             payment_id,
@@ -179,19 +243,29 @@ async def reject_and_refund(
         if verifier_private_key:
             metadata["verifier_private_key"] = verifier_private_key
 
-        payment_request = PaymentRequest(
-            payment_id=payment_id,
-            from_account=os.getenv("HEDERA_ACCOUNT_ID", ""),
-            to_account=metadata.get("to_hedera_account", ""),
-            amount=Decimal(str(payment_row.amount)),
-            description=metadata.get("description", ""),
-            metadata=metadata,
-        )
+        offline_mode = bool(os.getenv("X402_OFFLINE", "").strip()) or not HEDERA_SDK_AVAILABLE
 
-        hedera_client = get_hedera_client()
-        x402 = X402Payment(hedera_client)
+        if offline_mode:
+            receipt = SimpleNamespace(
+                transaction_id=f"offline-{uuid.uuid4().hex[:12]}",
+                status=PaymentStatus.REFUNDED,
+                timestamp=datetime.utcnow().isoformat(),
+                metadata={"mode": "offline"},
+            )
+        else:
+            payment_request = PaymentRequest(
+                payment_id=payment_id,
+                from_account=os.getenv("HEDERA_ACCOUNT_ID", ""),
+                to_account=metadata.get("worker_address", metadata.get("to_hedera_account", "")),
+                amount=Decimal(str(payment_row.amount)),
+                description=metadata.get("description", ""),
+                metadata=metadata,
+            )
 
-        receipt = await x402.approve_refund(payment_request)
+            hedera_client = get_hedera_client()
+            x402 = X402Payment(hedera_client)
+
+            receipt = await x402.approve_refund(payment_request)
 
         payment_row.status = DBPaymentStatus(receipt.status.value)
         payment_row.transaction_id = receipt.transaction_id
@@ -225,7 +299,7 @@ async def reject_and_refund(
         updated_metadata["a2a_thread_id"] = thread_id
         updated_metadata["a2a_messages"] = messages
         updated_metadata.setdefault("verifier_agent_id", verifier_agent_id)
-        payment_row.metadata = updated_metadata
+        payment_row.meta = updated_metadata
 
         publish_message(refund_message, tags=("payment", "refunded"))
 

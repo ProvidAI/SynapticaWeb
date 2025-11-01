@@ -1,41 +1,46 @@
-"""Temporary A2A transport shim.
+"""A2A transport helpers.
 
-This module centralises how we emit Agent-to-Agent (A2A) messages while
-the dedicated transport/broker integration is still under construction.
-By funnelling all message emission through the helpers below we make it
-easy to plug in the real delivery mechanism later without touching the
-business logic in negotiator/verifier tools.
-
-The helpers intentionally no-op beyond structured logging so existing
-agents can continue to operate synchronously. Once the transport is
-available, replace the body of :func:`publish_message` (and optionally
-add queue/backpressure handling) without needing to refactor callers.
+This module centralises how we emit Agent-to-Agent (A2A) messages.
+Messages are persisted to the shared database for dashboards and audit,
+and can optionally be forwarded to external webhooks for real-time
+integrations. By funnelling all message emission through the helpers
+below we keep the business logic in negotiator/verifier tools isolated
+from transport concerns.
 """
 
 from __future__ import annotations
 
+import os
 import logging
-from typing import Iterable
+from datetime import datetime, timezone
+from typing import Iterable, List
 
+import httpx
+from sqlalchemy.exc import SQLAlchemyError
+
+from shared.database import SessionLocal
+from shared.database.models import A2AEvent
 from .a2a import A2AMessage
 
 logger = logging.getLogger(__name__)
 
 
 def publish_message(message: A2AMessage, *, tags: Iterable[str] | None = None) -> None:
-    """Publish an A2A message via the temporary shim.
+    """Publish an A2A message.
 
     Args:
         message: Fully constructed A2A envelope to emit.
         tags: Optional iterable of hint strings that transport/broker
             implementations can use for routing or filtering.
 
-    The current implementation simply logs the message payload. This
-    keeps the call sites in place so we can introduce the actual
-    transport later without altering agent behaviour.
+    The implementation persists the message to the local database and,
+    when the ``A2A_EVENT_WEBHOOK_URL`` environment variable is set,
+    forwards the envelope as JSON to the configured webhook(s). Multiple
+    URLs can be provided by comma-separating the value.
     """
 
-    tag_suffix = f" tags={list(tags)}" if tags else ""
+    tag_list = list(tags) if tags else []
+    tag_suffix = f" tags={tag_list}" if tag_list else ""
     logger.info(
         "A2A publish %s->%s type=%s%s body=%s",
         message.from_agent,
@@ -44,6 +49,95 @@ def publish_message(message: A2AMessage, *, tags: Iterable[str] | None = None) -
         tag_suffix,
         message.body,
     )
+
+    _persist_event(message, tag_list)
+    _dispatch_webhooks(message, tag_list)
+
+
+def _persist_event(message: A2AMessage, tags: List[str]) -> None:
+    """Persist the message into the shared database."""
+
+    session = SessionLocal()
+    try:
+        existing = (
+            session.query(A2AEvent)
+            .filter(A2AEvent.message_id == message.id)
+            .one_or_none()
+        )
+
+        payload = message.to_dict()
+        timestamp = _coerce_timestamp(message.timestamp)
+
+        if existing:
+            existing.protocol = message.protocol
+            existing.message_type = message.type
+            existing.from_agent = message.from_agent
+            existing.to_agent = message.to_agent
+            existing.thread_id = message.thid
+            existing.timestamp = timestamp
+            existing.tags = tags or None
+            existing.body = payload
+        else:
+            session.add(
+                A2AEvent(
+                    message_id=message.id,
+                    protocol=message.protocol,
+                    message_type=message.type,
+                    from_agent=message.from_agent,
+                    to_agent=message.to_agent,
+                    thread_id=message.thid,
+                    timestamp=timestamp,
+                    tags=tags or None,
+                    body=payload,
+                )
+            )
+
+        session.commit()
+    except SQLAlchemyError:
+        session.rollback()
+        logger.exception("Failed to persist A2A message %s", message.id)
+    finally:
+        session.close()
+
+
+def _dispatch_webhooks(message: A2AMessage, tags: List[str]) -> None:
+    """Send the message payload to configured webhook endpoints."""
+
+    raw_urls = os.getenv("A2A_EVENT_WEBHOOK_URL", "")
+    if not raw_urls:
+        return
+
+    urls = [url.strip() for url in raw_urls.split(",") if url.strip()]
+    if not urls:
+        return
+
+    payload = {
+        "message": message.to_dict(),
+        "tags": tags,
+    }
+
+    for url in urls:
+        try:
+            response = httpx.post(url, json=payload, timeout=10.0)
+            response.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to dispatch A2A webhook to %s: %s", url, exc)
+
+
+def _coerce_timestamp(value: str | None) -> datetime:
+    """Convert message timestamp into a timezone-aware datetime object."""
+
+    if not value:
+        return datetime.utcnow()
+
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return datetime.utcnow()
+
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 __all__ = ["publish_message"]

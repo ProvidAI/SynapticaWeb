@@ -5,7 +5,11 @@ import uuid
 from typing import Any, Dict, List, cast
 from decimal import Decimal
 
-from shared.hedera import get_hedera_client
+from shared.hedera import (
+    get_hedera_client,
+    hedera_account_to_evm_address,
+    HEDERA_SDK_AVAILABLE,
+)
 from shared.protocols import (
     X402Payment,
     PaymentRequest,
@@ -50,13 +54,21 @@ async def create_payment_request(
 
         marketplace_treasury = os.getenv("TASK_ESCROW_MARKETPLACE_TREASURY", "").strip()
         default_verifiers = os.getenv("TASK_ESCROW_DEFAULT_VERIFIERS", "").strip()
-        verifier_addresses: List[str] = [
+
+        verifier_addresses: List[str] = []
+        for addr in (
             addr.strip()
             for addr in default_verifiers.split(",")
             if addr.strip()
-        ]
-        if not verifier_addresses and marketplace_treasury:
-            verifier_addresses.append(marketplace_treasury)
+        ):
+            verifier_addresses.append(hedera_account_to_evm_address(addr))
+
+        treasury_address: str | None = None
+        if marketplace_treasury:
+            treasury_address = hedera_account_to_evm_address(marketplace_treasury)
+
+        if not verifier_addresses and treasury_address:
+            verifier_addresses.append(treasury_address)
 
         approvals_required = int(os.getenv("TASK_ESCROW_DEFAULT_APPROVALS", "1") or 1)
         if approvals_required > len(verifier_addresses) and verifier_addresses:
@@ -67,17 +79,22 @@ async def create_payment_request(
 
         # Create payment record
         thread_id = new_thread_id(task_id, payment_id)
+        worker_address = hedera_account_to_evm_address(to_hedera_account)
+
         metadata: Dict[str, Any] = {
             "task_id": task_id,
             "description": description,
             "to_hedera_account": to_hedera_account,
-            "worker_address": to_hedera_account,
+            "worker_account_id": to_hedera_account,
+            "worker_address": worker_address,
             "verifier_addresses": verifier_addresses,
             "approvals_required": approvals_required,
             "marketplace_fee_bps": marketplace_fee_bps,
             "verifier_fee_bps": verifier_fee_bps,
             "a2a_thread_id": thread_id,
         }
+        if treasury_address:
+            metadata["marketplace_treasury"] = treasury_address
 
         proposal_message = build_payment_proposal_message(
             payment_id=payment_id,
@@ -105,7 +122,7 @@ async def create_payment_request(
             amount=amount,
             currency="HBAR",
             status=DBPaymentStatus.PENDING,
-            metadata=metadata,
+            meta=metadata,
         )
 
         db.add(payment)
@@ -149,28 +166,56 @@ async def authorize_payment(payment_id: str) -> Dict[str, Any]:
         if not payment:
             raise ValueError(f"Payment {payment_id} not found")
 
-        # Get x402 payment handler
-        hedera_client = get_hedera_client()
-        x402 = X402Payment(hedera_client)
-
         # Create payment request object
         payment_row: Any = payment
-        metadata = dict(cast(Dict[str, Any], payment_row.metadata or {}))
+        metadata = dict(cast(Dict[str, Any], payment_row.meta or {}))
         thread_id = metadata.get("a2a_thread_id") or new_thread_id(
             str(payment_row.task_id),
             payment_id,
         )
+
+        # Normalize worker and verifier addresses for legacy records.
+        try:
+            worker_address = metadata.get("worker_address")
+            if worker_address:
+                metadata["worker_address"] = hedera_account_to_evm_address(worker_address)
+            elif metadata.get("to_hedera_account"):
+                metadata["worker_address"] = hedera_account_to_evm_address(
+                    metadata["to_hedera_account"]
+                )
+        except ValueError as exc:
+            raise ValueError(f"Invalid worker address in payment metadata: {exc}") from exc
+
+        verifiers = metadata.get("verifier_addresses") or []
+        if isinstance(verifiers, list) and verifiers:
+            try:
+                metadata["verifier_addresses"] = [
+                    hedera_account_to_evm_address(address) for address in verifiers
+                ]
+            except ValueError as exc:
+                raise ValueError(f"Invalid verifier address in payment metadata: {exc}") from exc
+        elif metadata.get("marketplace_treasury"):
+            metadata["verifier_addresses"] = [
+                hedera_account_to_evm_address(metadata["marketplace_treasury"])
+            ]
+
         payment_request = PaymentRequest(
             payment_id=payment_id,
             from_account=os.getenv("HEDERA_ACCOUNT_ID", ""),
-            to_account=metadata.get("to_hedera_account", ""),
+            to_account=metadata.get("worker_address", metadata.get("to_hedera_account", "")),
             amount=Decimal(str(payment.amount)),
             description=metadata.get("description", ""),
             metadata=metadata,
         )
 
-        # Authorize by creating escrow on-chain
-        auth_id = await x402.authorize_payment(payment_request)
+        offline_mode = bool(os.getenv("X402_OFFLINE", "").strip()) or not HEDERA_SDK_AVAILABLE
+
+        if offline_mode:
+            auth_id = f"offline-{uuid.uuid4().hex[:12]}"
+        else:
+            hedera_client = get_hedera_client()
+            x402 = X402Payment(hedera_client)
+            auth_id = await x402.authorize_payment(payment_request)
 
         # Update payment record
         payment_row.authorization_id = auth_id
@@ -193,7 +238,7 @@ async def authorize_payment(payment_id: str) -> Dict[str, Any]:
         messages[authorized_message.type] = authorized_payload
         metadata["a2a_thread_id"] = thread_id
         metadata["a2a_messages"] = messages
-        payment_row.metadata = metadata
+        payment_row.meta = metadata
 
         publish_message(authorized_message, tags=("payment", "authorized"))
 
@@ -232,7 +277,7 @@ async def get_payment_status(payment_id: str) -> Dict[str, Any]:
             raise ValueError(f"Payment {payment_id} not found")
 
         payment_row: Any = payment
-        metadata = dict(cast(Dict[str, Any], payment_row.metadata or {}))
+        metadata = dict(cast(Dict[str, Any], payment_row.meta or {}))
         a2a_info = None
         thread_id = metadata.get("a2a_thread_id")
         if thread_id or metadata.get("a2a_messages"):

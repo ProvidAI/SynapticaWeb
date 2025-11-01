@@ -7,7 +7,7 @@ import json
 import os
 from dataclasses import dataclass, asdict
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
@@ -115,6 +115,11 @@ def _load_task_escrow_abi() -> List[Dict[str, Any]]:
 
 TASK_ESCROW_ABI = _load_task_escrow_abi()
 
+# Hedera network uses the same 10^18 base unit as Ethereum for native value.
+HBAR_TO_WEI = Decimal("1000000000000000000")
+# Hashio rejects transfers smaller than 1 tinybar (10_000_000_000 wei).
+MIN_NATIVE_VALUE_WEI = 10_000_000_000
+
 
 class X402Payment:
     """x402 Payment Protocol backed by the on-chain TaskEscrow contract."""
@@ -151,7 +156,7 @@ class X402Payment:
         verifier_addresses = self._resolve_verifiers(payment_request)
         approvals_required = self._resolve_approvals(payment_request, len(verifier_addresses))
         marketplace_fee_bps, verifier_fee_bps = self._resolve_fee_configuration(payment_request)
-        amount_tinybars = self._to_tinybars(payment_request.amount)
+        amount_wei = self._to_wei(payment_request.amount)
 
         fn = self.contract.functions.createEscrow(
             task_id,
@@ -165,7 +170,7 @@ class X402Payment:
         funding_key = self._resolve_funding_private_key(payment_request)
         tx_hash, receipt = await self._send_transaction(
             fn,
-            value=amount_tinybars,
+            value=amount_wei,
             private_key=funding_key,
         )
 
@@ -180,6 +185,7 @@ class X402Payment:
             "worker_address": worker_address,
             "block_number": receipt.get("blockNumber"),
             "gas_used": receipt.get("gasUsed"),
+            "amount_wei": amount_wei,
         }
 
         thread_id = (payment_request.metadata or {}).get("a2a_thread_id") if payment_request.metadata else None
@@ -388,7 +394,13 @@ class X402Payment:
         tx: TxParams = fn.build_transaction(tx_params)
 
         signed_tx = account.sign_transaction(cast(Dict[str, Any], tx))
-        raw_tx: bytes = cast(Any, signed_tx).rawTransaction
+        # eth-account renamed rawTransaction -> raw_transaction; support both.
+        signed_tx_any = cast(Any, signed_tx)
+        raw_tx: Optional[bytes] = getattr(signed_tx_any, "rawTransaction", None)
+        if raw_tx is None:
+            raw_tx = getattr(signed_tx_any, "raw_transaction", None)
+        if raw_tx is None:
+            raise AttributeError("Signed transaction is missing raw payload")
         tx_hash_bytes: HexBytes = await loop.run_in_executor(
             None, self.web3.eth.send_raw_transaction, raw_tx
         )
@@ -425,10 +437,12 @@ class X402Payment:
             return PaymentStatus.AUTHORIZED
         return PaymentStatus.FAILED
 
-    def _to_tinybars(self, amount: Decimal) -> int:
-        """Convert an HBAR amount to tinybars (1 HBAR = 100,000,000 tinybars)."""
+    def _to_wei(self, amount: Decimal) -> int:
+        """Convert an HBAR amount to wei (1 HBAR = 10^18 wei on Hedera)."""
 
-        tinybars = int(Decimal(amount) * Decimal("100000000"))
-        if tinybars <= 0:
+        wei_value = int((Decimal(amount) * HBAR_TO_WEI).to_integral_value(rounding=ROUND_DOWN))
+        if wei_value <= 0:
             raise ValueError("Escrow amount must be greater than zero")
-        return tinybars
+        if wei_value < MIN_NATIVE_VALUE_WEI:
+            raise ValueError("Escrow amount must be at least 1 tinybar (1e-8 HBAR)")
+        return wei_value
