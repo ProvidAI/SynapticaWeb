@@ -1,0 +1,250 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "IValidationRegistry",
+  "sourceName": "contracts/interfaces/IValidationRegistry.sol",
+  "abi": [
+    {
+      "inputs": [],
+      "name": "AgentNotFound",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidDataHash",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InvalidResponse",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "RequestExpired",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "UnauthorizedValidator",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ValidationAlreadyResponded",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ValidationRequestNotFound",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "agentValidatorId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "agentServerId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "dataHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "ValidationRequestEvent",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "agentValidatorId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "agentServerId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "dataHash",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint8",
+          "name": "response",
+          "type": "uint8"
+        }
+      ],
+      "name": "ValidationResponseEvent",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "getExpirationSlots",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "slots",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "dataHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getValidationRequest",
+      "outputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint256",
+              "name": "agentValidatorId",
+              "type": "uint256"
+            },
+            {
+              "internalType": "uint256",
+              "name": "agentServerId",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bytes32",
+              "name": "dataHash",
+              "type": "bytes32"
+            },
+            {
+              "internalType": "uint256",
+              "name": "timestamp",
+              "type": "uint256"
+            },
+            {
+              "internalType": "bool",
+              "name": "responded",
+              "type": "bool"
+            }
+          ],
+          "internalType": "struct IValidationRegistry.Request",
+          "name": "request",
+          "type": "tuple"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "dataHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "getValidationResponse",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "hasResponse",
+          "type": "bool"
+        },
+        {
+          "internalType": "uint8",
+          "name": "response",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "dataHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "isValidationPending",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "exists",
+          "type": "bool"
+        },
+        {
+          "internalType": "bool",
+          "name": "pending",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "agentValidatorId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "agentServerId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "bytes32",
+          "name": "dataHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "validationRequest",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "dataHash",
+          "type": "bytes32"
+        },
+        {
+          "internalType": "uint8",
+          "name": "response",
+          "type": "uint8"
+        }
+      ],
+      "name": "validationResponse",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x",
+  "deployedBytecode": "0x",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}
