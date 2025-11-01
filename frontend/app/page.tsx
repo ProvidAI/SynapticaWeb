@@ -106,7 +106,7 @@ export default function Home() {
   }
 
   // Handle task submission
-  const handleStartTask = async (taskDescription: string) => {
+  const handleStartTask = async (taskDescription: string, budget: number = 100) => {
     if (!taskDescription.trim()) {
       alert('Please enter a task description')
       return
@@ -119,13 +119,14 @@ export default function Home() {
 
       addExecutionLog({
         timestamp: new Date().toLocaleTimeString(),
-        message: 'Task submitted. Starting analysis...',
+        message: `Task submitted with budget: $${budget}. Starting analysis...`,
         source: 'orchestrator',
       })
 
       // Create task via BFF
       const response = await createTask({
         description: taskDescription,
+        budget_limit: budget,
         min_reputation_score: 0.7,
         verification_mode: 'standard',
       })

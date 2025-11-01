@@ -3,16 +3,18 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useTaskStore } from '@/store/taskStore'
-import { Send } from 'lucide-react'
+import { Send, DollarSign } from 'lucide-react'
 
 interface TaskFormProps {
-  onSubmit: (description: string) => void
+  onSubmit: (description: string, budget: number) => void
 }
 
 export function TaskForm({ onSubmit }: TaskFormProps) {
   const [description, setDescription] = useState('')
+  const [budget, setBudget] = useState('100')
   const { setDescription: setTaskDescription, status } = useTaskStore()
 
   const handleSubmit = () => {
@@ -21,8 +23,14 @@ export function TaskForm({ onSubmit }: TaskFormProps) {
       return
     }
 
+    const budgetValue = parseFloat(budget)
+    if (isNaN(budgetValue) || budgetValue <= 0) {
+      alert('Please enter a valid budget amount')
+      return
+    }
+
     setTaskDescription(description)
-    onSubmit(description)
+    onSubmit(description, budgetValue)
   }
 
   const isDisabled = status !== 'IDLE' && status !== 'FAILED'
@@ -59,6 +67,30 @@ export function TaskForm({ onSubmit }: TaskFormProps) {
           />
           <p className="text-xs text-slate-400">
             Tip: include data sources, success criteria, and delivery format so the orchestrator can price the work accurately.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-sm font-medium text-slate-600">
+            <span className="flex items-center gap-2">
+              <DollarSign className="h-4 w-4" />
+              Budget limit (USD)
+            </span>
+            <span className="text-xs font-normal uppercase tracking-[0.35em] text-slate-400">Required</span>
+          </div>
+          <Input
+            type="number"
+            id="budget"
+            placeholder="100"
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+            disabled={isDisabled}
+            min="0.01"
+            step="0.01"
+            className="rounded-2xl border-slate-200/70 bg-white/90 px-4 py-3 text-slate-700 shadow-inner transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-300/40 disabled:opacity-60"
+          />
+          <p className="text-xs text-slate-400">
+            Maximum amount to spend on this research task. Agents will be selected to fit within this budget.
           </p>
         </div>
 
