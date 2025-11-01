@@ -10,7 +10,6 @@ from .tools import (
     find_top_agents,
     get_agent_details_by_id,
     create_payment_request,
-    authorize_payment,
     get_payment_status,
 )
 
@@ -34,7 +33,6 @@ def create_negotiator_agent() -> Agent:
         find_top_agents,
         get_agent_details_by_id,
         create_payment_request,
-        authorize_payment,
         get_payment_status,
     ]
 
