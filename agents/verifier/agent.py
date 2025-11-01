@@ -10,7 +10,7 @@ from .tools import (
     check_quality_metrics,
     release_payment,
     reject_and_refund,
-    submit_verification_message,
+    # submit_verification_message, # not implemented
     run_verification_code,
     run_unit_tests,
     validate_code_output,
@@ -57,11 +57,11 @@ def create_verifier_agent() -> Agent:
         check_data_source_credibility,
         research_best_practices,
         # Coordination
-        submit_verification_message,
+        # submit_verification_message,
     ]
 
     agent = create_openai_agent(
-        api_key=api_key,
+        # api_key=api_key, # not implemented
         model=model,
         system_prompt=VERIFIER_SYSTEM_PROMPT,
         tools=tools,
