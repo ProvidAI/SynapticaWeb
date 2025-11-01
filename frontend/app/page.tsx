@@ -302,16 +302,6 @@ export default function Home() {
                   <p className="text-sm text-slate-300">Agent marketplace built on Hedera trust primitives</p>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <HederaInfo />
-                <Button
-                  variant="outline"
-                  className="border-white/20 bg-white/5 text-white transition hover:border-white/30 hover:bg-white/15"
-                  onClick={handleScrollToConsole}
-                >
-                  Launch Playground
-                </Button>
-              </div>
             </nav>
 
             <div className="flex justify-center">

@@ -15,9 +15,37 @@ from shared.database import engine, Base, SessionLocal
 from shared.database.models import A2AEvent
 from .middleware import logging_middleware
 from agents.orchestrator.agent import create_orchestrator_agent
+import shared.task_progress as task_progress
 
 # Load environment variables
 load_dotenv()
+
+# In-memory task storage for progress tracking
+tasks_storage: Dict[str, Dict[str, Any]] = {}
+
+
+def update_task_progress(task_id: str, step: str, status: str, data: Optional[Dict] = None):
+    """Update task progress for frontend polling."""
+    if task_id not in tasks_storage:
+        tasks_storage[task_id] = {
+            "task_id": task_id,
+            "status": "processing",
+            "progress": [],
+            "current_step": step
+        }
+
+    if "progress" not in tasks_storage[task_id]:
+        tasks_storage[task_id]["progress"] = []
+
+    tasks_storage[task_id]["progress"].append({
+        "step": step,
+        "status": status,
+        "timestamp": datetime.utcnow().isoformat(),
+        "data": data or {}
+    })
+
+    tasks_storage[task_id]["current_step"] = step
+    tasks_storage[task_id]["status"] = status
 
 
 # Pydantic models for API requests/responses
@@ -59,6 +87,8 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown."""
     # Startup: Create database tables
     Base.metadata.create_all(bind=engine)
+    # Register progress callback for task updates
+    task_progress.set_progress_callback(update_task_progress)
     print("Database initialized")
     print("Orchestrator agent ready")
     yield
@@ -111,6 +141,19 @@ async def root():
 async def health():
     """Health check endpoint."""
     return {"status": "healthy", "agent": "orchestrator"}
+
+
+@app.get("/api/tasks/{task_id}")
+async def get_task_status(task_id: str):
+    """Get task status and progress for frontend polling."""
+    if task_id not in tasks_storage:
+        return {
+            "task_id": task_id,
+            "status": "not_found",
+            "error": "Task not found"
+        }
+
+    return tasks_storage[task_id]
 
 
 @app.get("/a2a/events", response_model=List[A2AEventResponse])
@@ -167,7 +210,21 @@ async def execute_task(request: TaskRequest) -> TaskResponse:
     """
     task_id = str(uuid.uuid4())
 
+    # Initialize task in storage
+    tasks_storage[task_id] = {
+        "task_id": task_id,
+        "status": "processing",
+        "progress": [],
+        "current_step": "initializing"
+    }
+
     try:
+        # Update progress - initialization
+        update_task_progress(task_id, "initialization", "started", {
+            "message": "Starting task execution",
+            "description": request.description
+        })
+
         # Create orchestrator agent
         orchestrator = create_orchestrator_agent()
 
@@ -203,7 +260,23 @@ async def execute_task(request: TaskRequest) -> TaskResponse:
         """
 
         # Run the orchestrator agent
+        update_task_progress(task_id, "orchestrator", "running", {
+            "message": "Orchestrator analyzing task and coordinating agents"
+        })
+
         result = await orchestrator.run(query)
+
+        # Update final status
+        update_task_progress(task_id, "orchestrator", "completed", {
+            "message": "Task execution completed",
+            "result": str(result)
+        })
+
+        tasks_storage[task_id]["status"] = "completed"
+        tasks_storage[task_id]["result"] = {
+            "orchestrator_response": str(result),
+            "workflow": "negotiator -> executor -> verifier",
+        }
 
         return TaskResponse(
             task_id=task_id,
@@ -215,6 +288,14 @@ async def execute_task(request: TaskRequest) -> TaskResponse:
         )
 
     except Exception as e:
+        # Update error status
+        update_task_progress(task_id, "orchestrator", "failed", {
+            "error": str(e)
+        })
+
+        tasks_storage[task_id]["status"] = "failed"
+        tasks_storage[task_id]["error"] = str(e)
+
         return TaskResponse(
             task_id=task_id,
             status="failed",

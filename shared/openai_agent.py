@@ -104,6 +104,8 @@ class OpenAIAgent:
                     
                     # Determine type
                     param_type_str = "string"
+                    param_schema = {}
+
                     if param_type == int:
                         param_type_str = "integer"
                     elif param_type == float:
@@ -112,9 +114,29 @@ class OpenAIAgent:
                         param_type_str = "boolean"
                     elif param_type in [list, List] or (hasattr(param_type, "__origin__") and get_origin(param_type) is list):
                         param_type_str = "array"
+                        # Get the inner type for List[X]
+                        args = get_args(param_type) if hasattr(param_type, "__origin__") else []
+                        if args:
+                            inner_type = args[0]
+                            # Check if it's List[Dict[...]]
+                            if inner_type in [dict, Dict] or (hasattr(inner_type, "__origin__") and get_origin(inner_type) is dict):
+                                param_schema["items"] = {"type": "object"}
+                            elif inner_type == int:
+                                param_schema["items"] = {"type": "integer"}
+                            elif inner_type == float:
+                                param_schema["items"] = {"type": "number"}
+                            elif inner_type == bool:
+                                param_schema["items"] = {"type": "boolean"}
+                            elif inner_type == str:
+                                param_schema["items"] = {"type": "string"}
+                            else:
+                                param_schema["items"] = {"type": "object"}
+                        else:
+                            # Default to string array if no inner type specified
+                            param_schema["items"] = {"type": "string"}
                     elif param_type in [dict, Dict] or (hasattr(param_type, "__origin__") and get_origin(param_type) is dict):
                         param_type_str = "object"
-                    
+
                     # Handle Optional types
                     if hasattr(param_type, "__origin__"):
                         origin = get_origin(param_type)
@@ -128,14 +150,14 @@ class OpenAIAgent:
                                     param_type_str = "number"
                                 elif inner_type == bool:
                                     param_type_str = "boolean"
-                    
+
                     # Get description from docstring or use default
                     param_desc = param_descriptions.get(param_name, f"Parameter {param_name}")
-                    
-                    function_schema["parameters"]["properties"][param_name] = {
-                        "type": param_type_str,
-                        "description": param_desc
-                    }
+
+                    param_schema["type"] = param_type_str
+                    param_schema["description"] = param_desc
+
+                    function_schema["parameters"]["properties"][param_name] = param_schema
                     
                     # Add to required if no default
                     if param_default is inspect.Parameter.empty:
