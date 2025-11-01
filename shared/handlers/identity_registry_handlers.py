@@ -3,8 +3,10 @@ import json
 
 # -------- CONFIG --------
 RPC_URL = "https://testnet.hashio.io/api"
-PRIVATE_KEY = "0x4d653bacefa0beeca1f82ca5fc619539139c9957"
-CONTRACT_ADDRESS = "0x34Db979B201a7e5ddCD430C89b63031A574bA4DA"
+
+PRIVATE_KEY = "YOUR_WALLET_PRIVATE_KEY"
+CONTRACT_ADDRESS = "0x1194bDf550b41C9bF2BB5E86009D1617ae6B4279"
+
 
 # -------- SETUP --------
 web3 = Web3(Web3.HTTPProvider(RPC_URL))
