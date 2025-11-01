@@ -37,10 +37,10 @@ async def create_todo_list(task_id: str, items: List[Dict[str, str]]) -> Dict[st
             raise ValueError(f"Task {task_id} not found")
 
         # Store TODO list in task metadata
-        if task.metadata is None:
-            task.metadata = {}
+        if task.meta is None:
+            task.meta = {}
 
-        task.metadata["todo_list"] = [
+        task.meta["todo_list"] = [
             {
                 "id": f"todo_{i}",
                 "status": "pending",
@@ -55,7 +55,7 @@ async def create_todo_list(task_id: str, items: List[Dict[str, str]]) -> Dict[st
         return {
             "task_id": task_id,
             "todo_count": len(items),
-            "todo_list": task.metadata["todo_list"],
+            "todo_list": task.meta["todo_list"],
         }
     finally:
         db.close()
@@ -81,11 +81,11 @@ async def update_todo_item(task_id: str, todo_id: str, status: str) -> Dict[str,
         if not task:
             raise ValueError(f"Task {task_id} not found")
 
-        if not task.metadata or "todo_list" not in task.metadata:
+        if not task.meta or "todo_list" not in task.meta:
             raise ValueError(f"No TODO list found for task {task_id}")
 
         # Update TODO item
-        for item in task.metadata["todo_list"]:
+        for item in task.meta["todo_list"]:
             if item["id"] == todo_id:
                 item["status"] = status
                 break
@@ -93,7 +93,7 @@ async def update_todo_item(task_id: str, todo_id: str, status: str) -> Dict[str,
             raise ValueError(f"TODO item {todo_id} not found")
 
         # Mark modified for SQLAlchemy
-        task.metadata = dict(task.metadata)
+        task.meta = dict(task.meta)
         db.commit()
         db.refresh(task)
 

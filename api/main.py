@@ -3,13 +3,16 @@
 import os
 import uuid
 from contextlib import asynccontextmanager
-from typing import Dict, Any, Optional
-from fastapi import FastAPI, HTTPException
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-from shared.database import engine, Base
+from shared.database import engine, Base, SessionLocal
+from shared.database.models import A2AEvent
 from .middleware import logging_middleware
 from agents.orchestrator.agent import create_orchestrator_agent
 
@@ -35,6 +38,20 @@ class TaskResponse(BaseModel):
     status: str
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+
+
+class A2AEventResponse(BaseModel):
+    """Response model for emitted A2A messages."""
+
+    message_id: str
+    protocol: str
+    message_type: str
+    from_agent: str
+    to_agent: str
+    thread_id: str
+    timestamp: datetime
+    tags: Optional[List[str]] = None
+    body: Dict[str, Any]
 
 
 @asynccontextmanager
@@ -94,6 +111,41 @@ async def root():
 async def health():
     """Health check endpoint."""
     return {"status": "healthy", "agent": "orchestrator"}
+
+
+@app.get("/a2a/events", response_model=List[A2AEventResponse])
+def list_a2a_events(limit: int = 50) -> List[A2AEventResponse]:
+    """Return recent A2A events emitted by the system."""
+
+    session = SessionLocal()
+    try:
+        capped_limit = max(1, min(limit, 200))
+        records = (
+            session.query(A2AEvent)
+            .order_by(A2AEvent.timestamp.desc(), A2AEvent.id.desc())
+            .limit(capped_limit)
+            .all()
+        )
+
+        responses = []
+        for record in records:
+            responses.append(
+                A2AEventResponse(
+                    message_id=record.message_id,
+                    protocol=record.protocol,
+                    message_type=record.message_type,
+                    from_agent=record.from_agent,
+                    to_agent=record.to_agent,
+                    thread_id=record.thread_id,
+                    timestamp=record.timestamp,
+                    tags=record.tags or None,
+                    body=record.body or {},
+                )
+            )
+
+        return responses
+    finally:
+        session.close()
 
 
 @app.post("/execute", response_model=TaskResponse)

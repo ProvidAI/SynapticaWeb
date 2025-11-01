@@ -1,38 +1,83 @@
-import json
-from pathlib import Path
+from __future__ import annotations
 
-from web3 import Web3
+import json
+import logging
+import os
+from pathlib import Path
+from typing import Any
+
+try:
+    from web3 import Web3
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    Web3 = None  # type: ignore[assignment]
+
+logger = logging.getLogger(__name__)
 
 # -------- CONFIG --------
-RPC_URL = "https://testnet.hashio.io/api"
+RPC_URL = os.getenv("IDENTITY_REGISTRY_RPC_URL", "https://testnet.hashio.io/api")
+PRIVATE_KEY = os.getenv("IDENTITY_REGISTRY_PRIVATE_KEY", "")
+IDENTITY_CONTRACT_ADDRESS = os.getenv(
+    "IDENTITY_CONTRACT_ADDRESS",
+    "0x1194bDf550b41C9bF2BB5E86009D1617ae6B4279",
+)
 
-PRIVATE_KEY = "0x2ab3764213f6057077fa8b9a80fb4d9e06074ab034284c1a41bb3ec8c920c31d"
-IDENTITY_CONTRACT_ADDRESS = "0x1194bDf550b41C9bF2BB5E86009D1617ae6B4279"
+IDENTITY_REGISTRY = None
+wallet_address = ""
+web3 = None
+
+if Web3 is not None and PRIVATE_KEY:
+    try:
+        web3 = Web3(Web3.HTTPProvider(RPC_URL))
+        account = web3.eth.account.from_key(PRIVATE_KEY)
+        wallet_address = account.address
+
+        artifact_path = (
+            Path(__file__).resolve().parents[1]
+            / "contracts"
+            / "IdentityRegistry.sol"
+            / "IdentityRegistry.json"
+        )
+        if artifact_path.exists():
+            with artifact_path.open("r", encoding="utf-8") as f:
+                contract_json = json.load(f)
+                abi = contract_json["abi"]
+            IDENTITY_REGISTRY = web3.eth.contract(
+                address=IDENTITY_CONTRACT_ADDRESS,
+                abi=abi,
+            )
+        else:
+            logger.warning(
+                "Identity registry ABI not found at %s. Registry functions are disabled.",
+                artifact_path,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to initialise identity registry handler: %s", exc)
+else:
+    if Web3 is None:
+        logger.info(
+            "web3.py is not installed; identity registry handlers operating in stub mode."
+        )
+    else:
+        logger.info(
+            "IDENTITY_REGISTRY_PRIVATE_KEY not configured; identity registry handlers disabled."
+        )
 
 
-# -------- SETUP --------
-web3 = Web3(Web3.HTTPProvider(RPC_URL))
-account = web3.eth.account.from_key(PRIVATE_KEY)
-wallet_address = account.address
-
-# Load ABI (make sure JSON artifact exists)
-# Get path relative to this file's location
-_current_dir = Path(__file__).parent
-_contract_json_path = _current_dir.parent / "contracts" / "IdentityRegistry.sol" / "IdentityRegistry.json"
-
-with open(_contract_json_path) as f:
-    contract_json = json.load(f)
-    abi = contract_json["abi"]
-
-identity_registry = web3.eth.contract(address=IDENTITY_CONTRACT_ADDRESS, abi=abi)
+def _ensure_registry() -> None:
+    if IDENTITY_REGISTRY is None:
+        raise RuntimeError(
+            "Identity registry is unavailable in this environment. "
+            "Ensure web3.py is installed and the contract ABI is present."
+        )
 
 
 # -------- WRITE FUNCTIONS --------
 def register_agent(domain: str, agent_address: str = None):
+    _ensure_registry()
     if agent_address is None:
         agent_address = wallet_address
 
-    tx = identity_registry.functions.newAgent(domain, agent_address).build_transaction({
+    tx = IDENTITY_REGISTRY.functions.newAgent(domain, agent_address).build_transaction({
         "from": wallet_address,
         "value": web3.to_wei(0.005, "ether"),
         "nonce": web3.eth.get_transaction_count(wallet_address),
@@ -49,7 +94,9 @@ def register_agent(domain: str, agent_address: str = None):
 
 
 def update_agent(agent_id: int, new_domain: str = "", new_address: str = ""):
-    tx = identity_registry.functions.updateAgent(agent_id, new_domain, new_address).build_transaction({
+    _ensure_registry()
+
+    tx = IDENTITY_REGISTRY.functions.updateAgent(agent_id, new_domain, new_address).build_transaction({
         "from": wallet_address,
         "nonce": web3.eth.get_transaction_count(wallet_address),
         "gas": 200000,
@@ -65,8 +112,9 @@ def update_agent(agent_id: int, new_domain: str = "", new_address: str = ""):
 
 # -------- READ FUNCTIONS --------
 def get_agent(agent_id: int):
+    _ensure_registry()
     try:
-        agent = identity_registry.functions.getAgent(agent_id).call()
+        agent = IDENTITY_REGISTRY.functions.getAgent(agent_id).call()
         return agent
     except Exception as e:
         print("❌ Error:", e)
@@ -74,25 +122,9 @@ def get_agent(agent_id: int):
 
 
 def resolve_by_domain(domain: str):
+    _ensure_registry()
     try:
-        agent = identity_registry.functions.resolveByDomain(domain).call()
-        
-        # Check if response looks like an error tuple (same hex value repeated)
-        if agent and isinstance(agent, tuple) and len(agent) >= 2:
-            # Check if first two elements are the same (likely an error selector)
-            # Handle both string and integer/bytes representations
-            val0_str = str(agent[0]).lower().strip()
-            val1_str = str(agent[1]).lower().strip()
-            if val0_str == val1_str and ('0x' in val0_str or val0_str.startswith('0x')):
-                print(f"❌ Contract returned error selector: {agent[0]}")
-                return None
-        
-        # Validate the response - agent_id should not be 0, domain should not be empty
-        if agent and len(agent) >= 3:
-            agent_id = agent[0]
-            agent_domain = agent[1]
-            if agent_id == 0 or not agent_domain or agent_domain == "":
-                return None
+        agent = IDENTITY_REGISTRY.functions.resolveByDomain(domain).call()
         return agent
     except Exception as e:
         print("❌ Error:", e)
@@ -100,8 +132,9 @@ def resolve_by_domain(domain: str):
 
 
 def resolve_by_address(address: str):
+    _ensure_registry()
     try:
-        agent = identity_registry.functions.resolveByAddress(address).call()
+        agent = IDENTITY_REGISTRY.functions.resolveByAddress(address).call()
         return agent
     except Exception as e:
         print("❌ Error:", e)
@@ -109,11 +142,13 @@ def resolve_by_address(address: str):
 
 
 def get_agent_count():
-    return identity_registry.functions.getAgentCount().call()
+    _ensure_registry()
+    return IDENTITY_REGISTRY.functions.getAgentCount().call()
 
 
 def agent_exists(agent_id: int):
-    return identity_registry.functions.agentExists(agent_id).call()
+    _ensure_registry()
+    return IDENTITY_REGISTRY.functions.agentExists(agent_id).call()
 
 
 # -------- ERC8004 EXTENDED FUNCTIONS --------
@@ -122,8 +157,9 @@ def get_agent_reputation(agent_id: int):
     Get an agent's reputation score.
     Returns 0 if ReputationRegistry is not set.
     """
+    _ensure_registry()
     try:
-        score = identity_registry.functions.getAgentReputation(agent_id).call()
+        score = IDENTITY_REGISTRY.functions.getAgentReputation(agent_id).call()
         return score
     except Exception as e:
         print("❌ Error:", e)
@@ -136,8 +172,9 @@ def get_agent_vote_counts(agent_id: int):
     Returns (upVotes, downVotes).
     Returns (0, 0) if ReputationRegistry is not set.
     """
+    _ensure_registry()
     try:
-        up_votes, down_votes = identity_registry.functions.getAgentVoteCounts(agent_id).call()
+        up_votes, down_votes = IDENTITY_REGISTRY.functions.getAgentVoteCounts(agent_id).call()
         return {"upVotes": up_votes, "downVotes": down_votes}
     except Exception as e:
         print("❌ Error:", e)
@@ -150,8 +187,9 @@ def get_agent_validation(agent_id: int):
     Returns (validationCount, averageScore).
     Returns (0, 0) if ValidationRegistry is not set.
     """
+    _ensure_registry()
     try:
-        validation_count, average_score = identity_registry.functions.getAgentValidation(agent_id).call()
+        validation_count, average_score = IDENTITY_REGISTRY.functions.getAgentValidation(agent_id).call()
         return {"validationCount": validation_count, "averageScore": average_score}
     except Exception as e:
         print("❌ Error:", e)
@@ -169,8 +207,9 @@ def get_agent_full_info(agent_id: int):
         - validationCount: Number of validations received
         - validationScore: Average validation score (0-100)
     """
+    _ensure_registry()
     try:
-        result = identity_registry.functions.getAgentFullInfo(agent_id).call()
+        result = IDENTITY_REGISTRY.functions.getAgentFullInfo(agent_id).call()
         agent_info, reputation_score, up_votes, down_votes, validation_count, validation_score = result
 
         return {
@@ -196,8 +235,9 @@ def get_all_domains():
     Get all registered domain names.
     Returns a list of all domains registered in the identity registry.
     """
+    _ensure_registry()
     try:
-        domains = identity_registry.functions.getAllDomains().call()
+        domains = IDENTITY_REGISTRY.functions.getAllDomains().call()
         return domains
     except Exception as e:
         print("❌ Error:", e)
@@ -217,8 +257,9 @@ def get_domains_paginated(offset: int = 0, limit: int = 100):
         - domains: List of domain names
         - total: Total number of registered domains
     """
+    _ensure_registry()
     try:
-        domains, total = identity_registry.functions.getDomainsPaginated(offset, limit).call()
+        domains, total = IDENTITY_REGISTRY.functions.getDomainsPaginated(offset, limit).call()
         return {
             "domains": domains,
             "total": total,

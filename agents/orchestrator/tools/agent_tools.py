@@ -1,7 +1,13 @@
 """Agent tools - Negotiator, Executor, and Verifier as callable tools."""
 
+import asyncio
+import logging
 import os
 from typing import Any, Dict, Optional
+
+from strands import tool
+
+from shared.a2a import A2AAgentClient, run_async_task_sync
 from shared.openai_agent import create_openai_agent
 
 from agents.executor.system_prompt import EXECUTOR_SYSTEM_PROMPT
@@ -19,9 +25,9 @@ from agents.negotiator.system_prompt import NEGOTIATOR_SYSTEM_PROMPT
 # Import tools for each agent
 from agents.negotiator.tools import (
     create_payment_request,
-    discover_agents_by_capability,
-    evaluate_agent_pricing,
-    get_agent_details,
+    find_agents,
+    resolve_agent_by_domain,
+    compare_agent_scores,
     get_payment_status,
 )
 from agents.verifier.system_prompt import VERIFIER_SYSTEM_PROMPT
@@ -40,6 +46,28 @@ from agents.verifier.tools import (
     verify_task_result,
 )
 from agents.negotiator.tools.payment_tools import authorize_payment as _authorize_payment
+
+logger = logging.getLogger(__name__)
+
+_A2A_CLIENTS: Dict[str, A2AAgentClient] = {}
+
+
+def _get_a2a_client(env_var: str) -> Optional[A2AAgentClient]:
+    """Return (and cache) an A2A client for the configured endpoint."""
+
+    url = os.getenv(env_var, "").strip()
+    if not url:
+        return None
+
+    normalized_url = url.rstrip("/")
+    client = _A2A_CLIENTS.get(env_var)
+
+    if client and client.base_url == normalized_url:
+        return client
+
+    client = A2AAgentClient(url)
+    _A2A_CLIENTS[env_var] = client
+    return client
 
 
 def get_openai_api_key() -> str:
@@ -77,25 +105,6 @@ def negotiator_agent(
         - negotiation_summary: Summary of negotiation
     """
     try:
-        # Get API key and model
-        api_key = get_openai_api_key()
-        model = os.getenv("NEGOTIATOR_MODEL", "gpt-4-turbo-preview")
-
-        # Create specialized negotiator agent
-        agent = create_openai_agent(
-            api_key=api_key,
-            model=model,
-            system_prompt=NEGOTIATOR_SYSTEM_PROMPT,
-            tools=[
-                discover_agents_by_capability,
-                get_agent_details,
-                evaluate_agent_pricing,
-                create_payment_request,
-                get_payment_status,
-            ],
-        )
-
-        # Construct query for the agent
         query = f"""
         Task ID: {task_id}
 
@@ -115,14 +124,57 @@ def negotiator_agent(
         Return the selected agent details, payment proposal terms, and payment ID for orchestrator approval.
         """
 
-        # Execute agent (need to use asyncio for OpenAI agent)
-        import asyncio
+        metadata = {
+            "task_id": task_id,
+            "budget_limit": budget_limit,
+            "min_reputation_score": min_reputation_score,
+        }
+        metadata = {k: v for k, v in metadata.items() if v is not None}
+
+        client = _get_a2a_client("NEGOTIATOR_A2A_URL")
+        if client:
+            try:
+                response_text = run_async_task_sync(
+                    client.invoke_text(
+                        query,
+                        metadata=metadata or None,
+                    )
+                )
+                return {
+                    "success": True,
+                    "task_id": task_id,
+                    "response": str(response_text),
+                    "transport": "a2a",
+                }
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Negotiator A2A endpoint %s failed (%s); falling back to local execution",
+                    client.base_url,
+                    exc,
+                )
+
+        api_key = get_openai_api_key()
+        model = os.getenv("NEGOTIATOR_MODEL", "gpt-4-turbo-preview")
+        agent = create_openai_agent(
+            api_key=api_key,
+            model=model,
+            system_prompt=NEGOTIATOR_SYSTEM_PROMPT,
+            tools=[
+                find_agents,
+                resolve_agent_by_domain,
+                compare_agent_scores,
+                create_payment_request,
+                get_payment_status,
+            ],
+        )
+
         response = asyncio.run(agent.run(query))
 
         return {
             "success": True,
             "task_id": task_id,
             "response": str(response),
+            "transport": "local",
         }
 
     except Exception as e:
@@ -185,25 +237,6 @@ def executor_agent(
         - execution_log: Execution details and any retries
     """
     try:
-        # Get API key and model
-        api_key = get_openai_api_key()
-        model = os.getenv("EXECUTOR_MODEL", "gpt-4-turbo-preview")
-
-        # Create specialized executor agent
-        agent = create_openai_agent(
-            api_key=api_key,
-            model=model,
-            system_prompt=EXECUTOR_SYSTEM_PROMPT,
-            tools=[
-                create_dynamic_tool,
-                load_and_execute_tool,
-                list_dynamic_tools,
-                execute_shell_command,
-                get_tool_template,
-            ],
-        )
-
-        # Construct query for the agent
         params_str = (
             f"\nExecution Parameters: {execution_parameters}"
             if execution_parameters
@@ -229,14 +262,50 @@ def executor_agent(
         Return the execution results, list of created tools, and execution log.
         """
 
-        # Execute agent (need to use asyncio for OpenAI agent)
-        import asyncio
+        client = _get_a2a_client("EXECUTOR_A2A_URL")
+        if client:
+            try:
+                response_text = run_async_task_sync(
+                    client.invoke_text(
+                        query,
+                        metadata={"task_id": task_id} if task_id else None,
+                    )
+                )
+                return {
+                    "success": True,
+                    "task_id": task_id,
+                    "response": str(response_text),
+                    "transport": "a2a",
+                }
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Executor A2A endpoint %s failed (%s); falling back to local execution",
+                    client.base_url,
+                    exc,
+                )
+
+        api_key = get_openai_api_key()
+        model = os.getenv("EXECUTOR_MODEL", "gpt-4-turbo-preview")
+        agent = create_openai_agent(
+            api_key=api_key,
+            model=model,
+            system_prompt=EXECUTOR_SYSTEM_PROMPT,
+            tools=[
+                create_dynamic_tool,
+                load_and_execute_tool,
+                list_dynamic_tools,
+                execute_shell_command,
+                get_tool_template,
+            ],
+        )
+
         response = asyncio.run(agent.run(query))
 
         return {
             "success": True,
             "task_id": task_id,
             "response": str(response),
+            "transport": "local",
         }
 
     except Exception as e:
@@ -280,32 +349,6 @@ def verifier_agent(
         - payment_status: Payment released/rejected
     """
     try:
-        # Get API key and model
-        api_key = get_openai_api_key()
-        model = os.getenv("VERIFIER_MODEL", "gpt-4-turbo-preview")
-
-        # Create specialized verifier agent
-        agent = create_openai_agent(
-            api_key=api_key,
-            model=model,
-            system_prompt=VERIFIER_SYSTEM_PROMPT,
-            tools=[
-                verify_task_result,
-                validate_output_schema,
-                check_quality_metrics,
-                run_verification_code,
-                run_unit_tests,
-                validate_code_output,
-                search_web,
-                verify_fact,
-                check_data_source_credibility,
-                research_best_practices,
-                release_payment,
-                reject_and_refund,
-            ],
-        )
-
-        # Construct query for the agent
         query = f"""
         Task ID: {task_id}
         Payment ID: {payment_id}
@@ -329,8 +372,55 @@ def verifier_agent(
         Return verification status, detailed report, quality score, and payment status.
         """
 
-        # Execute agent (need to use asyncio for OpenAI agent)
-        import asyncio
+        client = _get_a2a_client("VERIFIER_A2A_URL")
+        if client:
+            try:
+                response_text = run_async_task_sync(
+                    client.invoke_text(
+                        query,
+                        metadata={
+                            "task_id": task_id,
+                            "payment_id": payment_id,
+                            "mode": verification_mode,
+                        },
+                    )
+                )
+                return {
+                    "success": True,
+                    "task_id": task_id,
+                    "payment_id": payment_id,
+                    "response": str(response_text),
+                    "transport": "a2a",
+                }
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Verifier A2A endpoint %s failed (%s); falling back to local execution",
+                    client.base_url,
+                    exc,
+                )
+
+        api_key = get_openai_api_key()
+        model = os.getenv("VERIFIER_MODEL", "gpt-4-turbo-preview")
+        agent = create_openai_agent(
+            api_key=api_key,
+            model=model,
+            system_prompt=VERIFIER_SYSTEM_PROMPT,
+            tools=[
+                verify_task_result,
+                validate_output_schema,
+                check_quality_metrics,
+                run_verification_code,
+                run_unit_tests,
+                validate_code_output,
+                search_web,
+                verify_fact,
+                check_data_source_credibility,
+                research_best_practices,
+                release_payment,
+                reject_and_refund,
+            ],
+        )
+
         response = asyncio.run(agent.run(query))
 
         return {
@@ -338,6 +428,7 @@ def verifier_agent(
             "task_id": task_id,
             "payment_id": payment_id,
             "response": str(response),
+            "transport": "local",
         }
 
     except Exception as e:

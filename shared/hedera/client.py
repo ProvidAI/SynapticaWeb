@@ -4,15 +4,121 @@ import os
 from typing import Optional
 from dataclasses import dataclass
 
-from hedera import (
-    Client,
-    AccountId,
-    PrivateKey,
-    TopicCreateTransaction,
-    TopicMessageSubmitTransaction,
-    TopicId,
-)
 from pydantic_settings import BaseSettings
+
+try:
+    from hedera import (
+        Client as _HederaClient,
+        AccountId as _HederaAccountId,
+        PrivateKey as _HederaPrivateKey,
+        TopicCreateTransaction as _HederaTopicCreateTransaction,
+        TopicMessageSubmitTransaction as _HederaTopicMessageSubmitTransaction,
+        TopicId as _HederaTopicId,
+    )
+    _HEDERA_HAS_FACTORY = any(
+        hasattr(_HederaClient, name)
+        for name in ("for_testnet", "forTestnet", "forTestNet")
+    ) and any(
+        hasattr(_HederaClient, name)
+        for name in ("for_mainnet", "forMainnet", "forMainNet")
+    )
+except ModuleNotFoundError:  # pragma: no cover - executed when SDK missing locally
+    _HederaClient = None  # type: ignore[assignment]
+    _HederaAccountId = None  # type: ignore[assignment]
+    _HederaPrivateKey = None  # type: ignore[assignment]
+    _HederaTopicCreateTransaction = None  # type: ignore[assignment]
+    _HederaTopicMessageSubmitTransaction = None  # type: ignore[assignment]
+    _HederaTopicId = None  # type: ignore[assignment]
+    _HEDERA_HAS_FACTORY = False
+
+
+if _HederaClient is not None and _HEDERA_HAS_FACTORY:
+    HEDERA_SDK_AVAILABLE = True
+    Client = _HederaClient
+    AccountId = _HederaAccountId
+    PrivateKey = _HederaPrivateKey
+    TopicCreateTransaction = _HederaTopicCreateTransaction
+    TopicMessageSubmitTransaction = _HederaTopicMessageSubmitTransaction
+    TopicId = _HederaTopicId
+else:  # pragma: no cover - stub mode for local testing without SDK
+    HEDERA_SDK_AVAILABLE = False
+
+    class _StubReceipt:
+        def __init__(self, topic_id: str | None = None, status: str = "NOT_AVAILABLE"):
+            self.topic_id = topic_id
+            self.status = status
+
+
+    class Client:  # type: ignore[override]
+        """Minimal stub mimicking the Hedera Client interface."""
+
+        def __init__(self, network: str):
+            self.network = network
+            self.operator = None
+
+        @classmethod
+        def for_testnet(cls) -> "Client":
+            return cls("testnet")
+
+        @classmethod
+        def for_mainnet(cls) -> "Client":
+            return cls("mainnet")
+
+        def set_operator(self, operator_id, operator_key) -> None:
+            self.operator = (operator_id, operator_key)
+
+
+    class AccountId:  # type: ignore[override]
+        @staticmethod
+        def from_string(value: str) -> str:
+            return value
+
+
+    class PrivateKey:  # type: ignore[override]
+        @staticmethod
+        def from_string(value: str) -> str:
+            return value
+
+
+    class TopicId:  # type: ignore[override]
+        @staticmethod
+        def from_string(value: str) -> str:
+            return value
+
+
+    class TopicCreateTransaction:  # type: ignore[override]
+        def __init__(self):
+            self.memo = ""
+
+        def set_topic_memo(self, memo: str) -> "TopicCreateTransaction":
+            self.memo = memo
+            return self
+
+        async def execute(self, client: Client) -> _StubReceipt:
+            return _StubReceipt(topic_id="stub-topic-id")
+
+        async def get_receipt(self, client: Client) -> _StubReceipt:
+            return _StubReceipt(topic_id="stub-topic-id")
+
+
+    class TopicMessageSubmitTransaction:  # type: ignore[override]
+        def __init__(self):
+            self.topic_id = None
+            self.message = b""
+
+        def set_topic_id(self, topic_id) -> "TopicMessageSubmitTransaction":
+            self.topic_id = topic_id
+            return self
+
+        def set_message(self, message: bytes) -> "TopicMessageSubmitTransaction":
+            self.message = message
+            return self
+
+        async def execute(self, client: Client) -> _StubReceipt:
+            return _StubReceipt(status="STUB_OK")
+
+        async def get_receipt(self, client: Client) -> _StubReceipt:
+            return _StubReceipt(status="STUB_OK")
 
 
 class HederaConfig(BaseSettings):
@@ -39,7 +145,13 @@ class HederaClientWrapper:
 
     async def create_topic(self, memo: str = "Agent Coordination Topic") -> TopicId:
         """Create a new HCS topic."""
-        transaction = TopicCreateTransaction().set_topic_memo(memo)
+        transaction = TopicCreateTransaction()
+        if hasattr(transaction, "set_topic_memo"):
+            transaction = transaction.set_topic_memo(memo)
+        elif hasattr(transaction, "setTopicMemo"):
+            transaction = transaction.setTopicMemo(memo)
+        else:
+            raise AttributeError("TopicCreateTransaction lacks set_topic_memo/setTopicMemo")
 
         response = await transaction.execute(self.client)
         receipt = await response.get_receipt(self.client)
@@ -58,9 +170,20 @@ class HederaClientWrapper:
 
         transaction = (
             TopicMessageSubmitTransaction()
-            .set_topic_id(target_topic)
-            .set_message(message.encode("utf-8"))
         )
+        if hasattr(transaction, "set_topic_id"):
+            transaction = transaction.set_topic_id(target_topic)
+        elif hasattr(transaction, "setTopicId"):
+            transaction = transaction.setTopicId(target_topic)
+        else:
+            raise AttributeError("TopicMessageSubmitTransaction lacks set_topic_id/setTopicId")
+
+        if hasattr(transaction, "set_message"):
+            transaction = transaction.set_message(message.encode("utf-8"))
+        elif hasattr(transaction, "setMessage"):
+            transaction = transaction.setMessage(message.encode("utf-8"))
+        else:
+            raise AttributeError("TopicMessageSubmitTransaction lacks set_message/setMessage")
 
         response = await transaction.execute(self.client)
         receipt = await response.get_receipt(self.client)
@@ -81,23 +204,43 @@ def get_hedera_client(config: Optional[HederaConfig] = None) -> HederaClientWrap
     if config is None:
         config = HederaConfig()
 
-    # Create client for testnet or mainnet
+    # Create client for testnet or mainnet, handling camelCase factories in Jython bindings
+    def _factory(method_names):
+        for name in method_names:
+            if hasattr(Client, name):
+                method = getattr(Client, name)
+                return method()
+        raise AttributeError(
+            "Client factory methods not found. Tried: " + ", ".join(method_names)
+        )
+
     if config.network == "testnet":
-        client = Client.for_testnet()
+        client = _factory(["for_testnet", "forTestnet", "forTestNet"])
     elif config.network == "mainnet":
-        client = Client.for_mainnet()
+        client = _factory(["for_mainnet", "forMainnet", "forMainNet"])
     else:
         raise ValueError(f"Unsupported network: {config.network}")
 
-    # Set operator
-    operator_id = AccountId.from_string(config.account_id)
-    operator_key = PrivateKey.from_string(config.private_key)
-    client.set_operator(operator_id, operator_key)
+    def _from_string(cls, value: str):
+        for name in ("from_string", "fromString", "fromStringLiteral"):
+            if hasattr(cls, name):
+                return getattr(cls, name)(value)
+        raise AttributeError(f"{cls.__name__} lacks from_string/fromString method")
+
+    operator_id = _from_string(AccountId, config.account_id)
+    operator_key = _from_string(PrivateKey, config.private_key)
+
+    if hasattr(client, "set_operator"):
+        client.set_operator(operator_id, operator_key)
+    elif hasattr(client, "setOperator"):
+        client.setOperator(operator_id, operator_key)
+    else:
+        raise AttributeError("Client object missing set_operator/setOperator method")
 
     # Parse topic ID if provided
     topic_id = None
     if config.hcs_topic_id:
-        topic_id = TopicId.from_string(config.hcs_topic_id)
+        topic_id = _from_string(TopicId, config.hcs_topic_id)
 
     return HederaClientWrapper(
         client=client, operator_id=operator_id, operator_key=operator_key, topic_id=topic_id
