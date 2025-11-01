@@ -11,7 +11,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../"))
 
 from shared.handlers.identity_registry_handlers import (
     get_agent,
-    get_agent_count,
     get_all_domains,
     resolve_by_domain,
 )
