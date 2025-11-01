@@ -1,8 +1,7 @@
 """Executor Agent implementation with meta-tooling capabilities."""
 
 import os
-from strands import Agent
-from anthropic import Anthropic
+from shared.openai_agent import Agent, create_openai_agent
 
 from .system_prompt import EXECUTOR_SYSTEM_PROMPT
 from .tools import (
@@ -24,15 +23,13 @@ def create_executor_agent() -> Agent:
     - Demonstrates meta-tooling pattern for agent composition
 
     Returns:
-        Configured Strands Agent instance
+        Configured OpenAI Agent instance
     """
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    model = os.getenv("EXECUTOR_MODEL", "claude-3-7-sonnet-20250219")
+    api_key = os.getenv("OPENAI_API_KEY")
+    model = os.getenv("EXECUTOR_MODEL", "gpt-4-turbo-preview")
 
     if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY not set")
-
-    client = Anthropic(api_key=api_key)
+        raise ValueError("OPENAI_API_KEY not set")
 
     # Core tools for meta-tooling
     tools = [
@@ -43,8 +40,8 @@ def create_executor_agent() -> Agent:
         get_tool_template,  # Get templates for tool creation
     ]
 
-    agent = Agent(
-        client=client,
+    agent = create_openai_agent(
+        api_key=api_key,
         model=model,
         system_prompt=EXECUTOR_SYSTEM_PROMPT,
         tools=tools,

@@ -2,9 +2,7 @@
 
 import os
 from typing import Any, Dict, Optional
-
-from anthropic import Anthropic
-from strands import Agent, tool
+from shared.openai_agent import create_openai_agent
 
 from agents.executor.system_prompt import EXECUTOR_SYSTEM_PROMPT
 from agents.executor.tools import (
@@ -44,15 +42,14 @@ from agents.verifier.tools import (
 )
 
 
-def get_anthropic_client() -> Anthropic:
-    """Get configured Anthropic client."""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
+def get_openai_api_key() -> str:
+    """Get configured OpenAI API key."""
+    api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY not set")
-    return Anthropic(api_key=api_key)
+        raise ValueError("OPENAI_API_KEY not set")
+    return api_key
 
 
-@tool
 def negotiator_agent(
     task_id: str,
     capability_requirements: str,
@@ -80,13 +77,13 @@ def negotiator_agent(
         - negotiation_summary: Summary of negotiation
     """
     try:
-        # Get model and client
-        client = get_anthropic_client()
-        model = os.getenv("NEGOTIATOR_MODEL", "claude-3-5-sonnet-20241022")
+        # Get API key and model
+        api_key = get_openai_api_key()
+        model = os.getenv("NEGOTIATOR_MODEL", "gpt-4-turbo-preview")
 
         # Create specialized negotiator agent
-        agent = Agent(
-            client=client,
+        agent = create_openai_agent(
+            api_key=api_key,
             model=model,
             system_prompt=NEGOTIATOR_SYSTEM_PROMPT,
             tools=[
@@ -119,8 +116,9 @@ def negotiator_agent(
         Return the selected agent details, payment ID, and negotiation summary.
         """
 
-        # Execute agent
-        response = agent(query)
+        # Execute agent (need to use asyncio for OpenAI agent)
+        import asyncio
+        response = asyncio.run(agent.run(query))
 
         return {
             "success": True,
@@ -165,13 +163,13 @@ def executor_agent(
         - execution_log: Execution details and any retries
     """
     try:
-        # Get model and client
-        client = get_anthropic_client()
-        model = os.getenv("EXECUTOR_MODEL", "claude-3-5-sonnet-20241022")
+        # Get API key and model
+        api_key = get_openai_api_key()
+        model = os.getenv("EXECUTOR_MODEL", "gpt-4-turbo-preview")
 
         # Create specialized executor agent
-        agent = Agent(
-            client=client,
+        agent = create_openai_agent(
+            api_key=api_key,
             model=model,
             system_prompt=EXECUTOR_SYSTEM_PROMPT,
             tools=[
@@ -209,8 +207,9 @@ def executor_agent(
         Return the execution results, list of created tools, and execution log.
         """
 
-        # Execute agent
-        response = agent(query)
+        # Execute agent (need to use asyncio for OpenAI agent)
+        import asyncio
+        response = asyncio.run(agent.run(query))
 
         return {
             "success": True,
@@ -259,13 +258,13 @@ def verifier_agent(
         - payment_status: Payment released/rejected
     """
     try:
-        # Get model and client
-        client = get_anthropic_client()
-        model = os.getenv("VERIFIER_MODEL", "claude-3-5-sonnet-20241022")
+        # Get API key and model
+        api_key = get_openai_api_key()
+        model = os.getenv("VERIFIER_MODEL", "gpt-4-turbo-preview")
 
         # Create specialized verifier agent
-        agent = Agent(
-            client=client,
+        agent = create_openai_agent(
+            api_key=api_key,
             model=model,
             system_prompt=VERIFIER_SYSTEM_PROMPT,
             tools=[
@@ -308,8 +307,9 @@ def verifier_agent(
         Return verification status, detailed report, quality score, and payment status.
         """
 
-        # Execute agent
-        response = agent(query)
+        # Execute agent (need to use asyncio for OpenAI agent)
+        import asyncio
+        response = asyncio.run(agent.run(query))
 
         return {
             "success": True,

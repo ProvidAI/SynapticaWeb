@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(env)",
+      "Bash(lsof:*)",
+      "Bash(chmod:*)",
+      "Bash(open:*)",
+      "Bash(tee:*)",
+      "Bash(sqlite3:*)",
+      "Bash(pip show:*)",
+      "Bash(pip install web3)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
