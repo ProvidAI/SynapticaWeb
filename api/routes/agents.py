@@ -6,7 +6,6 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from shared.database import get_db, Agent
-from shared.protocols import ERC8004Discovery
 
 router = APIRouter()
 

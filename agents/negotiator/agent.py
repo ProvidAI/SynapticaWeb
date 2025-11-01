@@ -5,13 +5,13 @@ from shared.openai_agent import Agent, create_openai_agent
 
 from .system_prompt import NEGOTIATOR_SYSTEM_PROMPT
 from .tools import (
-    discover_agents_by_capability,
-    get_agent_details,
-    evaluate_agent_pricing,
+    search_agents_by_domain,
+    search_agents_by_address,
+    find_top_agents,
+    get_agent_details_by_id,
     create_payment_request,
     authorize_payment,
     get_payment_status,
-    submit_negotiation_message,
 )
 
 
@@ -29,13 +29,13 @@ def create_negotiator_agent() -> Agent:
         raise ValueError("OPENAI_API_KEY not set")
 
     tools = [
-        discover_agents_by_capability,
-        get_agent_details,
-        evaluate_agent_pricing,
+        search_agents_by_domain,
+        search_agents_by_address,
+        find_top_agents,
+        get_agent_details_by_id,
         create_payment_request,
         authorize_payment,
         get_payment_status,
-        submit_negotiation_message,
     ]
 
     agent = create_openai_agent(

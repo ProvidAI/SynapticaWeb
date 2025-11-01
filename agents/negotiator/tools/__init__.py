@@ -1,13 +1,19 @@
 """Tools for Negotiator agent."""
 
-from .discovery_tools import discover_agents_by_capability, get_agent_details, evaluate_agent_pricing
 from .payment_tools import create_payment_request, authorize_payment, get_payment_status
+from .search_tools import (
+    search_agents_by_domain,
+    search_agents_by_address,
+    find_top_agents,
+    get_agent_details_by_id
+)
 
 __all__ = [
-    "discover_agents_by_capability",
-    "get_agent_details",
-    "evaluate_agent_pricing",
     "create_payment_request",
     "authorize_payment",
     "get_payment_status",
+    "search_agents_by_domain",
+    "search_agents_by_address",
+    "find_top_agents",
+    "get_agent_details_by_id",
 ]
