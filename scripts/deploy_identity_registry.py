@@ -75,7 +75,10 @@ try:
     Contract = web3.eth.contract(abi=abi, bytecode=bytecode)
 
     # Build deployment transaction
-    tx = Contract.constructor().build_transaction({
+    tx = Contract.constructor(
+    "0x90dFCF20AaeF4fc1f213Bb79E8A6F53EE732Bb2e",  # ReputationRegistry (zero address for now)
+    "0x8E71DC262992A9125EF1a0B2bd74A32eBFC96c2d"   # ValidationRegistry (zero address for now)
+).build_transaction({
         'from': wallet,
         'nonce': web3.eth.get_transaction_count(wallet),
         'gas': 2000000,  # Generous gas limit for deployment
