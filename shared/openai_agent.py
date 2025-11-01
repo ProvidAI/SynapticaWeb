@@ -170,6 +170,7 @@ class Agent:
     def __init__(
         self,
         client: Any = None,  # Ignored, we create our own
+        api_key: Optional[str] = None,
         model: str = "gpt-4-turbo-preview",
         system_prompt: str = "",
         tools: Optional[List] = None
@@ -177,6 +178,7 @@ class Agent:
         """Initialize agent with Strands-like interface."""
         # Create OpenAI agent internally
         self._agent = OpenAIAgent(
+            api_key=api_key,
             model=model,
             system_prompt=system_prompt,
             tools=tools
@@ -190,6 +192,7 @@ class Agent:
 # Helper function to create agent
 def create_openai_agent(
     system_prompt: str,
+    api_key: Optional[str] = None,
     tools: Optional[List] = None,
     model: Optional[str] = None
 ) -> Agent:
@@ -206,17 +209,8 @@ def create_openai_agent(
     """
     model = model or os.getenv("ORCHESTRATOR_MODEL", "gpt-4-turbo-preview")
     return Agent(
+        api_key=api_key,
         model=model,
         system_prompt=system_prompt,
         tools=tools
     )
-
-
-# For backward compatibility
-import asyncio
-
-
-class Anthropic:
-    """Dummy Anthropic class for compatibility."""
-    def __init__(self, api_key: str = None):
-        pass
