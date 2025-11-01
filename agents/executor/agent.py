@@ -7,7 +7,10 @@ from shared.openai_agent import Agent, create_openai_agent
 from .system_prompt import EXECUTOR_SYSTEM_PROMPT
 from .tools import (
     create_dynamic_tool,
+    create_tools_from_metadata,
+    execute_agent_tool_from_metadata,
     execute_shell_command,
+    fetch_metadata_from_uri,
     get_agent_metadata_for_execution,
     get_tool_template,
     list_all_agents,
@@ -15,6 +18,7 @@ from .tools import (
     load_and_execute_tool,
     query_agent_by_domain,
     query_agent_by_id,
+    use_agent_tool,
 )
 
 
@@ -48,6 +52,11 @@ def create_executor_agent() -> Agent:
         query_agent_by_domain,  # Query agent by domain from smart contract
         list_all_agents,  # List all agents on smart contract
         get_agent_metadata_for_execution,  # Get complete agent metadata for tool creation
+        # Metadata and execution tools
+        fetch_metadata_from_uri,  # Fetch metadata from URI (IPFS, HTTP, etc.)
+        create_tools_from_metadata,  # Create dynamic tools from metadata JSON
+        execute_agent_tool_from_metadata,  # Execute agent tool from metadata (full workflow)
+        use_agent_tool,  # Convenience function to use agent tool (query, fetch, create, execute)
     ]
 
     agent = create_openai_agent(

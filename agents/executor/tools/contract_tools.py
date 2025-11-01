@@ -2,7 +2,7 @@
 
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from strands import tool
 
@@ -262,8 +262,9 @@ async def get_agent_metadata_for_execution(agent_id: Optional[int] = None, domai
                 # If no endpoint in meta, check metadata URI
                 if "api_endpoint" not in result and db_agent.erc8004_metadata_uri:
                     result["metadata_uri"] = db_agent.erc8004_metadata_uri
-                    # Note: In a real implementation, you'd fetch metadata from the URI
-                    # For now, we'll return the URI and let the executor handle it
+                    # Note: Metadata fetching is done asynchronously by the executor
+                    # The executor will use fetch_metadata_from_uri tool to get the full metadata
+                    # We just return the URI here for the executor to fetch
 
         finally:
             db.close()
