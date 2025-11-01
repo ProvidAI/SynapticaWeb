@@ -1,6 +1,6 @@
 """Payment management routes."""
 
-from typing import Any, List, Optional, cast
+from typing import Any, Dict, List, Optional, cast
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -22,6 +22,8 @@ class PaymentResponse(BaseModel):
     currency: str
     status: str
     transaction_id: Optional[str]
+    a2a_thread_id: Optional[str] = None
+    a2a_messages: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
@@ -53,6 +55,7 @@ async def get_payment(payment_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Payment not found")
 
     payment_row: Any = payment  # Allow SQLAlchemy instrumented attributes
+    metadata = cast(Dict[str, Any], (payment_row.metadata or {}))
 
     return PaymentResponse(
         id=str(payment_row.id),
@@ -63,6 +66,8 @@ async def get_payment(payment_id: str, db: Session = Depends(get_db)):
         currency=str(payment_row.currency),
         status=payment_row.status.value,
         transaction_id=payment_row.transaction_id,
+        a2a_thread_id=metadata.get("a2a_thread_id"),
+        a2a_messages=metadata.get("a2a_messages"),
     )
 
 
@@ -84,6 +89,7 @@ async def list_payments(
     responses: List[PaymentResponse] = []
     for payment in payments:
         payment_row = cast(Any, payment)
+        metadata = cast(Dict[str, Any], (payment_row.metadata or {}))
         responses.append(
             PaymentResponse(
                 id=str(payment_row.id),
@@ -94,6 +100,8 @@ async def list_payments(
                 currency=str(payment_row.currency),
                 status=payment_row.status.value,
                 transaction_id=payment_row.transaction_id,
+                a2a_thread_id=metadata.get("a2a_thread_id"),
+                a2a_messages=metadata.get("a2a_messages"),
             )
         )
 

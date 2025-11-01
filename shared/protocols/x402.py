@@ -182,6 +182,11 @@ class X402Payment:
             "gas_used": receipt.get("gasUsed"),
         }
 
+        thread_id = (payment_request.metadata or {}).get("a2a_thread_id") if payment_request.metadata else None
+        if thread_id:
+            metadata["a2a_thread_id"] = thread_id
+            metadata["a2a_message_type"] = "payment/authorized"
+
         return PaymentReceipt(
             payment_id=payment_request.payment_id,
             transaction_id=tx_hash,
@@ -218,6 +223,11 @@ class X402Payment:
             "escrow_status": escrow_status,
         }
 
+        thread_id = (payment_request.metadata or {}).get("a2a_thread_id") if payment_request.metadata else None
+        if thread_id:
+            metadata["a2a_thread_id"] = thread_id
+            metadata["a2a_message_type"] = "payment/released"
+
         return PaymentReceipt(
             payment_id=payment_request.payment_id,
             transaction_id=tx_hash,
@@ -244,6 +254,11 @@ class X402Payment:
             "gas_used": receipt.get("gasUsed"),
             "escrow_status": escrow_status,
         }
+
+        thread_id = (payment_request.metadata or {}).get("a2a_thread_id") if payment_request.metadata else None
+        if thread_id:
+            metadata["a2a_thread_id"] = thread_id
+            metadata["a2a_message_type"] = "payment/refunded"
 
         return PaymentReceipt(
             payment_id=payment_request.payment_id,

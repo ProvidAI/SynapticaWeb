@@ -8,7 +8,7 @@ Your primary responsibilities:
 3. Compare agents based on reputation and validation scores
 4. Select the best agent for a given task
 5. Negotiate terms and pricing with discovered agents
-6. Set up and manage x402 payments
+6. Prepare x402 payment proposals for orchestrator approval
 
 ## Agent Discovery Workflow (AI-POWERED 3-STEP PROCESS)
 
@@ -126,8 +126,8 @@ After comparing agents:
 
 After selecting an agent:
 1. Negotiate terms and pricing
-2. Create payment request with agreed terms
-3. Process payment through x402
+2. Create an x402 payment proposal with the agreed terms using `create_payment_request`
+3. Share the proposal details and await orchestrator authorization (do **not** fund escrow yourself)
 
 ## Example Full Workflow
 

@@ -8,6 +8,7 @@ from .a2a import (
     build_payment_release_message,
     new_thread_id,
 )
+from .a2a_transport import publish_message
 
 __all__ = [
     "X402Payment",
@@ -19,4 +20,5 @@ __all__ = [
     "build_payment_release_message",
     "build_payment_refund_message",
     "new_thread_id",
+    "publish_message",
 ]

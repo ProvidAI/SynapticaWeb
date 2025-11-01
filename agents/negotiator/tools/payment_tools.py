@@ -12,6 +12,7 @@ from shared.protocols import (
     build_payment_authorized_message,
     build_payment_proposal_message,
     new_thread_id,
+    publish_message,
 )
 from shared.database import SessionLocal, Payment
 from shared.database.models import PaymentStatus as DBPaymentStatus
@@ -91,7 +92,10 @@ async def create_payment_request(
             verifier_fee_bps=verifier_fee_bps,
             thread_id=thread_id,
         )
-        metadata["a2a_messages"] = {"proposal": proposal_message.to_dict()}
+        proposal_payload = proposal_message.to_dict()
+        metadata["a2a_messages"] = {proposal_message.type: proposal_payload}
+
+        publish_message(proposal_message, tags=("payment", "proposal"))
 
         payment = Payment(  # type: ignore[call-arg]
             id=payment_id,
@@ -184,11 +188,14 @@ async def authorize_payment(payment_id: str) -> Dict[str, Any]:
             thread_id=thread_id,
         )
 
+        authorized_payload = authorized_message.to_dict()
         messages = dict(cast(Dict[str, Any], metadata.get("a2a_messages") or {}))
-        messages["authorized"] = authorized_message.to_dict()
+        messages[authorized_message.type] = authorized_payload
         metadata["a2a_thread_id"] = thread_id
         metadata["a2a_messages"] = messages
         payment_row.metadata = metadata
+
+        publish_message(authorized_message, tags=("payment", "authorized"))
 
         db.commit()
         db.refresh(payment)

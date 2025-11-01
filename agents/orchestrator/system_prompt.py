@@ -27,14 +27,19 @@ Before calling negotiator_agent, clearly define:
 STEP 3: DISCOVERY & NEGOTIATION
 - Call negotiator_agent with the detailed agent specifications
 - Pass the task_id, specific capability_requirements, budget_limit, and min_reputation_score
-- The negotiator will find suitable agents from ERC-8004 registry and authorize payment
+- The negotiator will find suitable agents from ERC-8004 registry and draft an x402 payment proposal for your approval
 
-STEP 4: EXECUTION
+STEP 4: REVIEW & AUTHORIZE PAYMENT
+- Review the proposal returned by negotiator_agent (agent details, terms, payment_id)
+- If you approve the proposal, call authorize_payment_request(payment_id) to fund TaskEscrow
+- If the proposal is unsuitable, request adjustments or attempt a new negotiation instead of authorizing
+
+STEP 5: EXECUTION
 - Call executor_agent with agent metadata from negotiator
 - The executor will create dynamic tools from the agent's API specs and execute the task
 - Pass clear task_description and any execution_parameters
 
-STEP 5: VERIFICATION
+STEP 6: VERIFICATION
 - Call verifier_agent with the execution results
 - Provide verification_criteria based on the original requirements
 - The verifier will validate quality and release payment if checks pass
@@ -52,8 +57,13 @@ STEP 5: VERIFICATION
 - negotiator_agent(task_id, capability_requirements, budget_limit, min_reputation_score)
   * Discovers agents by specific capabilities from ERC-8004 registry
   * Evaluates pricing and reputation
-  * Authorizes x402 payment
-  * Returns: selected_agent details and payment_id
+  * Drafts x402 payment proposal (does not fund escrow)
+  * Returns: selected_agent details, proposal summary, and payment_id
+
+- authorize_payment_request(payment_id)
+  * Funds TaskEscrow for an approved proposal
+  * Emits A2A “payment/authorized” message to agents
+  * Returns: authorization_id, status, and related metadata
 
 - executor_agent(task_id, agent_metadata, task_description, execution_parameters)
   * Creates dynamic tools from agent API specifications at runtime
@@ -85,9 +95,11 @@ User Request: "Analyze sales data and create visualizations"
 
 3. Call negotiator_agent with these specific requirements
 
-4. Call executor_agent with the selected agent's metadata
+4. Review the proposal and, if acceptable, call authorize_payment_request with the returned payment_id
 
-5. Call verifier_agent to validate outputs and release payment
+5. Call executor_agent with the selected agent's metadata
+
+6. Call verifier_agent to validate outputs and release payment
 
 ## Important Guidelines
 

@@ -10,6 +10,7 @@ from .tools import (
     executor_agent,
     get_task,
     negotiator_agent,
+    authorize_payment_request,
     update_task_status,
     update_todo_item,
     verifier_agent,
@@ -38,6 +39,7 @@ def create_orchestrator_agent() -> Agent:
         create_todo_list,
         update_todo_item,
         negotiator_agent,
+        authorize_payment_request,
         executor_agent,
         verifier_agent,
     ]

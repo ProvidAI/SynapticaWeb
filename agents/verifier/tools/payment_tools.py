@@ -13,6 +13,7 @@ from shared.protocols import (
     build_payment_refund_message,
     build_payment_release_message,
     new_thread_id,
+    publish_message,
 )
 from shared.database import SessionLocal, Payment
 from shared.database.models import PaymentStatus as DBPaymentStatus
@@ -105,12 +106,15 @@ async def release_payment(payment_id: str, verification_notes: str = "") -> Dict
             thread_id=thread_id,
         )
 
+        release_payload = release_message.to_dict()
         messages = dict(cast(Dict[str, Any], updated_metadata.get("a2a_messages") or {}))
-        messages["released"] = release_message.to_dict()
+        messages[release_message.type] = release_payload
         updated_metadata["a2a_thread_id"] = thread_id
         updated_metadata["a2a_messages"] = messages
         updated_metadata.setdefault("verifier_agent_id", verifier_agent_id)
         payment_row.metadata = updated_metadata
+
+        publish_message(release_message, tags=("payment", "released"))
 
         db.commit()
         db.refresh(payment)
@@ -215,12 +219,15 @@ async def reject_and_refund(
             thread_id=thread_id,
         )
 
+        refund_payload = refund_message.to_dict()
         messages = dict(cast(Dict[str, Any], updated_metadata.get("a2a_messages") or {}))
-        messages["refunded"] = refund_message.to_dict()
+        messages[refund_message.type] = refund_payload
         updated_metadata["a2a_thread_id"] = thread_id
         updated_metadata["a2a_messages"] = messages
         updated_metadata.setdefault("verifier_agent_id", verifier_agent_id)
         payment_row.metadata = updated_metadata
+
+        publish_message(refund_message, tags=("payment", "refunded"))
 
         db.commit()
         db.refresh(payment)

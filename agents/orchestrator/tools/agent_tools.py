@@ -18,7 +18,6 @@ from agents.negotiator.system_prompt import NEGOTIATOR_SYSTEM_PROMPT
 
 # Import tools for each agent
 from agents.negotiator.tools import (
-    authorize_payment,
     create_payment_request,
     discover_agents_by_capability,
     evaluate_agent_pricing,
@@ -40,6 +39,7 @@ from agents.verifier.tools import (
     verify_fact,
     verify_task_result,
 )
+from agents.negotiator.tools.payment_tools import authorize_payment as _authorize_payment
 
 
 def get_openai_api_key() -> str:
@@ -73,7 +73,7 @@ def negotiator_agent(
     Returns:
         Dict containing:
         - selected_agent: Chosen agent details
-        - payment_id: Payment authorization ID
+        - payment_id: Payment request ID (escrow not yet funded)
         - negotiation_summary: Summary of negotiation
     """
     try:
@@ -91,7 +91,6 @@ def negotiator_agent(
                 get_agent_details,
                 evaluate_agent_pricing,
                 create_payment_request,
-                authorize_payment,
                 get_payment_status,
             ],
         )
@@ -111,9 +110,9 @@ def negotiator_agent(
         1. Discover suitable agents from the ERC-8004 registry
         2. Evaluate their pricing and reputation
         3. Select the best agent based on cost-effectiveness and reliability
-        4. Create and authorize payment via x402
+        4. Draft an x402 payment proposal (do NOT authorize or fund escrow)
 
-        Return the selected agent details, payment ID, and negotiation summary.
+        Return the selected agent details, payment proposal terms, and payment ID for orchestrator approval.
         """
 
         # Execute agent (need to use asyncio for OpenAI agent)
@@ -132,6 +131,29 @@ def negotiator_agent(
             "task_id": task_id,
             "error": str(e),
         }
+
+
+def authorize_payment_request(payment_id: str) -> Dict[str, Any]:
+    """Authorize an x402 payment proposal by funding TaskEscrow.
+
+    This helper is reserved for the Orchestrator agent after it reviews and
+    approves a payment proposal drafted by the Negotiator. It funds the
+    TaskEscrow contract and emits the corresponding A2A authorization message.
+
+    Args:
+        payment_id: Identifier of the pending payment proposal.
+
+    Returns:
+        Result dictionary including authorization details or error context.
+    """
+
+    try:
+        import asyncio
+
+        response = asyncio.run(_authorize_payment(payment_id))
+        return {"success": True, **response}
+    except Exception as exc:
+        return {"success": False, "payment_id": payment_id, "error": str(exc)}
 
 
 @tool
