@@ -165,3 +165,48 @@ def get_agent_full_info(agent_id: int):
     except Exception as e:
         print("❌ Error:", e)
         return None
+
+
+# -------- DOMAIN LISTING FUNCTIONS --------
+def get_all_domains():
+    """
+    Get all registered domain names.
+    Returns a list of all domains registered in the identity registry.
+    """
+    try:
+        domains = identity_registry.functions.getAllDomains().call()
+        return domains
+    except Exception as e:
+        print("❌ Error:", e)
+        return []
+
+
+def get_domains_paginated(offset: int = 0, limit: int = 100):
+    """
+    Get paginated list of registered domains.
+
+    Args:
+        offset: Starting index (default: 0)
+        limit: Maximum number of domains to return (default: 100)
+
+    Returns:
+        Dictionary with:
+        - domains: List of domain names
+        - total: Total number of registered domains
+    """
+    try:
+        domains, total = identity_registry.functions.getDomainsPaginated(offset, limit).call()
+        return {
+            "domains": domains,
+            "total": total,
+            "offset": offset,
+            "limit": limit
+        }
+    except Exception as e:
+        print("❌ Error:", e)
+        return {
+            "domains": [],
+            "total": 0,
+            "offset": offset,
+            "limit": limit
+        }

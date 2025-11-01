@@ -10,32 +10,12 @@
     },
     {
       "inputs": [],
-      "name": "InvalidDataHash",
+      "name": "AlreadyValidated",
       "type": "error"
     },
     {
       "inputs": [],
-      "name": "InvalidResponse",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "RequestExpired",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "UnauthorizedValidator",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "ValidationAlreadyResponded",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "ValidationRequestNotFound",
+      "name": "InvalidScore",
       "type": "error"
     },
     {
@@ -44,133 +24,49 @@
         {
           "indexed": true,
           "internalType": "uint256",
-          "name": "agentValidatorId",
+          "name": "agentId",
           "type": "uint256"
         },
         {
           "indexed": true,
-          "internalType": "uint256",
-          "name": "agentServerId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "dataHash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "ValidationRequestEvent",
-      "type": "event"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "agentValidatorId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "uint256",
-          "name": "agentServerId",
-          "type": "uint256"
-        },
-        {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "dataHash",
-          "type": "bytes32"
+          "internalType": "address",
+          "name": "validator",
+          "type": "address"
         },
         {
           "indexed": false,
           "internalType": "uint8",
-          "name": "response",
+          "name": "score",
           "type": "uint8"
+        },
+        {
+          "indexed": false,
+          "internalType": "string",
+          "name": "dataUri",
+          "type": "string"
         }
       ],
-      "name": "ValidationResponseEvent",
+      "name": "ValidationSubmitted",
       "type": "event"
     },
     {
-      "inputs": [],
-      "name": "getExpirationSlots",
-      "outputs": [
+      "inputs": [
         {
           "internalType": "uint256",
-          "name": "slots",
+          "name": "agentId",
           "type": "uint256"
         }
       ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "dataHash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "getValidationRequest",
+      "name": "getValidation",
       "outputs": [
         {
-          "components": [
-            {
-              "internalType": "uint256",
-              "name": "agentValidatorId",
-              "type": "uint256"
-            },
-            {
-              "internalType": "uint256",
-              "name": "agentServerId",
-              "type": "uint256"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "dataHash",
-              "type": "bytes32"
-            },
-            {
-              "internalType": "uint256",
-              "name": "timestamp",
-              "type": "uint256"
-            },
-            {
-              "internalType": "bool",
-              "name": "responded",
-              "type": "bool"
-            }
-          ],
-          "internalType": "struct IValidationRegistry.Request",
-          "name": "request",
-          "type": "tuple"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "dataHash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "getValidationResponse",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "hasResponse",
-          "type": "bool"
+          "internalType": "uint256",
+          "name": "validationCount",
+          "type": "uint256"
         },
         {
           "internalType": "uint8",
-          "name": "response",
+          "name": "averageScore",
           "type": "uint8"
         }
       ],
@@ -180,21 +76,21 @@
     {
       "inputs": [
         {
-          "internalType": "bytes32",
-          "name": "dataHash",
-          "type": "bytes32"
+          "internalType": "uint256",
+          "name": "agentId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "validator",
+          "type": "address"
         }
       ],
-      "name": "isValidationPending",
+      "name": "hasValidated",
       "outputs": [
         {
           "internalType": "bool",
-          "name": "exists",
-          "type": "bool"
-        },
-        {
-          "internalType": "bool",
-          "name": "pending",
+          "name": "hasValidated",
           "type": "bool"
         }
       ],
@@ -205,39 +101,21 @@
       "inputs": [
         {
           "internalType": "uint256",
-          "name": "agentValidatorId",
+          "name": "agentId",
           "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "agentServerId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "dataHash",
-          "type": "bytes32"
-        }
-      ],
-      "name": "validationRequest",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "bytes32",
-          "name": "dataHash",
-          "type": "bytes32"
         },
         {
           "internalType": "uint8",
-          "name": "response",
+          "name": "score",
           "type": "uint8"
+        },
+        {
+          "internalType": "string",
+          "name": "dataUri",
+          "type": "string"
         }
       ],
-      "name": "validationResponse",
+      "name": "submitValidation",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"

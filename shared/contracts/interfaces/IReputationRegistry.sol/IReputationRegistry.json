@@ -10,17 +10,7 @@
     },
     {
       "inputs": [],
-      "name": "FeedbackAlreadyAuthorized",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "InvalidAgentId",
-      "type": "error"
-    },
-    {
-      "inputs": [],
-      "name": "UnauthorizedFeedback",
+      "name": "AlreadyVoted",
       "type": "error"
     },
     {
@@ -29,39 +19,107 @@
         {
           "indexed": true,
           "internalType": "uint256",
-          "name": "agentClientId",
+          "name": "agentId",
           "type": "uint256"
         },
         {
           "indexed": true,
-          "internalType": "uint256",
-          "name": "agentServerId",
-          "type": "uint256"
+          "internalType": "address",
+          "name": "voter",
+          "type": "address"
         },
         {
-          "indexed": true,
-          "internalType": "bytes32",
-          "name": "feedbackAuthId",
-          "type": "bytes32"
+          "indexed": false,
+          "internalType": "bool",
+          "name": "isPositive",
+          "type": "bool"
+        },
+        {
+          "indexed": false,
+          "internalType": "int256",
+          "name": "newScore",
+          "type": "int256"
         }
       ],
-      "name": "AuthFeedback",
+      "name": "ReputationChanged",
       "type": "event"
     },
     {
       "inputs": [
         {
           "internalType": "uint256",
-          "name": "agentClientId",
+          "name": "agentId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getReputation",
+      "outputs": [
+        {
+          "internalType": "int256",
+          "name": "score",
+          "type": "int256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "agentId",
+          "type": "uint256"
+        }
+      ],
+      "name": "getVoteCounts",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "upVotes",
           "type": "uint256"
         },
         {
           "internalType": "uint256",
-          "name": "agentServerId",
+          "name": "downVotes",
           "type": "uint256"
         }
       ],
-      "name": "acceptFeedback",
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "agentId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "voter",
+          "type": "address"
+        }
+      ],
+      "name": "hasVoted",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "hasVoted",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "agentId",
+          "type": "uint256"
+        }
+      ],
+      "name": "voteDown",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
@@ -70,53 +128,13 @@
       "inputs": [
         {
           "internalType": "uint256",
-          "name": "agentClientId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "agentServerId",
+          "name": "agentId",
           "type": "uint256"
         }
       ],
-      "name": "getFeedbackAuthId",
-      "outputs": [
-        {
-          "internalType": "bytes32",
-          "name": "feedbackAuthId",
-          "type": "bytes32"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "agentClientId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "agentServerId",
-          "type": "uint256"
-        }
-      ],
-      "name": "isFeedbackAuthorized",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "isAuthorized",
-          "type": "bool"
-        },
-        {
-          "internalType": "bytes32",
-          "name": "feedbackAuthId",
-          "type": "bytes32"
-        }
-      ],
-      "stateMutability": "view",
+      "name": "voteUp",
+      "outputs": [],
+      "stateMutability": "nonpayable",
       "type": "function"
     }
   ],
