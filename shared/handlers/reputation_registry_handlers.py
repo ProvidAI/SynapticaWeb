@@ -13,7 +13,7 @@ account = web3.eth.account.from_key(PRIVATE_KEY)
 wallet_address = account.address
 
 # Load ABI
-with open("../../shared/contracts/ReputationRegistry.sol/ReputationRegistry.json") as f:
+with open("../contracts/ReputationRegistry.sol/ReputationRegistry.json") as f:
     contract_json = json.load(f)
     abi = contract_json["abi"]
 

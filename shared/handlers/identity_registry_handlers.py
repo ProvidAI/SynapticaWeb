@@ -12,7 +12,7 @@ account = web3.eth.account.from_key(PRIVATE_KEY)
 wallet_address = account.address
 
 # Load ABI (make sure JSON artifact exists)
-with open("../../shared/contracts/IdentityRegistry.sol/IdentityRegistry.json") as f:
+with open("../contracts/IdentityRegistry.sol/IdentityRegistry.json") as f:
     contract_json = json.load(f)
     abi = contract_json["abi"]
 
