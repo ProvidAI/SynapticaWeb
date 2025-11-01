@@ -1,0 +1,116 @@
+"""
+Experiment Runner Agent
+
+Executes experiments, simulations, and data analysis based on experiment protocols
+"""
+
+import json
+from typing import Dict, Any, List
+from agents.research.base_research_agent import BaseResearchAgent
+
+
+class ExperimentRunnerAgent(BaseResearchAgent):
+    """Agent for experiment runner."""
+
+    def __init__(self):
+        super().__init__(
+            agent_id="experiment-runner-001",
+            name="Experiment Runner",
+            description="Executes experiments, simulations, and data analysis based on experiment protocols",
+            capabilities=['experiment-execution', 'simulation', 'data-collection', 'monitoring', 'error-handling'],
+            pricing={
+                "model": "pay-per-use",
+                "rate": "0.20 HBAR",
+                "unit": "per_task"
+            },
+            model="gpt-4-turbo-preview"
+        )
+
+    def get_system_prompt(self) -> str:
+        return """You are an Experiment Runner AI agent that executes research experiments and simulations.
+
+Your role is to run experiments according to protocols, collect data, monitor execution, and handle errors.
+
+Return JSON with: execution_id, results, metrics, raw_data, execution_time, status, errors, logs"""
+
+    def get_tools(self) -> List:
+        """Get tools for this agent."""
+        return []
+
+    async def execute_task(self, task_input: Dict[str, Any], context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Execute the agent's primary task.
+
+        Args:
+            task_input: Input data for the task
+            context: Additional context
+
+        Returns:
+            Task results with metadata
+        """
+        # Build request based on input
+        request = f"""
+        Execute the following task:
+
+        Input: {json.dumps(task_input, indent=2)}
+
+        Context: {json.dumps(context or {}, indent=2)}
+
+        Provide a comprehensive response in JSON format as specified in your system prompt.
+        """
+
+        # Execute agent
+        result = await self.execute(request)
+
+        if not result['success']:
+            return {
+                'success': False,
+                'error': result.get('error', 'Task execution failed')
+            }
+
+        try:
+            # Parse the agent's response
+            agent_output = result['result']
+
+            if isinstance(agent_output, str):
+                # Try parsing the entire string as JSON first
+                try:
+                    task_data = json.loads(agent_output)
+                except json.JSONDecodeError:
+                    # Extract JSON from response if there's surrounding text
+                    json_start = agent_output.find('{')
+                    json_end = agent_output.rfind('}') + 1
+                    if json_start != -1 and json_end > json_start:
+                        json_str = agent_output[json_start:json_end]
+                        task_data = json.loads(json_str)
+                    else:
+                        return {
+                            'success': False,
+                            'error': 'Failed to parse task output as JSON'
+                        }
+            else:
+                task_data = agent_output
+
+            # Calculate payment
+            payment_due = float(self.pricing['rate'].replace(' HBAR', ''))
+            payment_multiplier = self.get_payment_rate() / payment_due
+
+            return {
+                'success': True,
+                'result': task_data,
+                'metadata': {
+                    'agent_id': self.agent_id,
+                    'payment_due': payment_due * payment_multiplier,
+                    'currency': 'HBAR'
+                }
+            }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Failed to process task output: {str(e)}'
+            }
+
+
+# Create global instance
+experiment_runner_001_agent = ExperimentRunnerAgent()

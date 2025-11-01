@@ -71,7 +71,7 @@ async def create_dynamic_tool(
             tool_description=tool_spec.get("description", ""),
             tool_code=tool_code,
             file_path=str(file_path),
-            metadata={
+            meta={
                 "agent_metadata": agent_metadata,
                 "tool_spec": tool_spec,
                 "created_at": datetime.utcnow().isoformat(),

@@ -1,6 +1,6 @@
 """SQLAlchemy models for Hedera marketplace."""
 
-from sqlalchemy import Column, String, Integer, Float, DateTime, Text, JSON, ForeignKey, Enum
+from sqlalchemy import Column, String, Integer, Float, DateTime, Text, JSON, ForeignKey, Enum, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -28,6 +28,26 @@ class PaymentStatus(str, enum.Enum):
     REFUNDED = "refunded"
 
 
+class ResearchPhaseStatus(str, enum.Enum):
+    """Research phase status enum."""
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class ResearchPhaseType(str, enum.Enum):
+    """Research phase type enum."""
+
+    IDEATION = "ideation"
+    KNOWLEDGE_RETRIEVAL = "knowledge_retrieval"
+    EXPERIMENTATION = "experimentation"
+    INTERPRETATION = "interpretation"
+    PUBLICATION = "publication"
+
+
 class Task(Base):
     """Task model."""
 
@@ -43,7 +63,7 @@ class Task(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     result = Column(JSON, nullable=True)
-    metadata = Column(JSON, nullable=True)
+    meta = Column(JSON, nullable=True)  # Renamed from metadata to avoid SQLAlchemy conflict
 
     # Relationships
     agent = relationship("Agent", back_populates="tasks")
@@ -65,7 +85,7 @@ class Agent(Base):
     erc8004_metadata_uri = Column(String, nullable=True)
     status = Column(String, default="active")
     created_at = Column(DateTime, default=datetime.utcnow)
-    metadata = Column(JSON, nullable=True)
+    meta = Column(JSON, nullable=True)  # Renamed from metadata to avoid SQLAlchemy conflict
 
     # Relationships
     tasks = relationship("Task", back_populates="agent")
@@ -93,7 +113,7 @@ class Payment(Base):
     authorization_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
-    metadata = Column(JSON, nullable=True)
+    meta = Column(JSON, nullable=True)  # Renamed from metadata to avoid SQLAlchemy conflict
 
     # Relationships
     task = relationship("Task", back_populates="payments")
@@ -116,7 +136,91 @@ class DynamicTool(Base):
     file_path = Column(String)  # Path to generated file
     created_at = Column(DateTime, default=datetime.utcnow)
     used_count = Column(Integer, default=0)
-    metadata = Column(JSON, nullable=True)
+    meta = Column(JSON, nullable=True)  # Renamed from metadata to avoid SQLAlchemy conflict
 
     # Relationships
     task = relationship("Task", back_populates="dynamic_tools")
+
+
+class ResearchPipeline(Base):
+    """Research pipeline model."""
+
+    __tablename__ = "research_pipelines"
+
+    id = Column(String, primary_key=True)
+    query = Column(Text, nullable=False)  # Original research query
+    research_topic = Column(String, nullable=False)  # Extracted topic
+    budget = Column(Float, default=5.0)  # Total budget in HBAR
+    spent = Column(Float, default=0.0)  # Amount spent so far
+    status = Column(Enum(ResearchPhaseStatus), default=ResearchPhaseStatus.PENDING)
+    current_phase = Column(Enum(ResearchPhaseType), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    meta = Column(JSON, nullable=True)  # Additional pipeline metadata (renamed to avoid conflict)
+
+    # Relationships
+    phases = relationship("ResearchPhase", back_populates="pipeline", cascade="all, delete-orphan")
+    artifacts = relationship("ResearchArtifact", back_populates="pipeline", cascade="all, delete-orphan")
+
+
+class ResearchPhase(Base):
+    """Research phase model."""
+
+    __tablename__ = "research_phases"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pipeline_id = Column(String, ForeignKey("research_pipelines.id"))
+    phase_type = Column(Enum(ResearchPhaseType), nullable=False)
+    status = Column(Enum(ResearchPhaseStatus), default=ResearchPhaseStatus.PENDING)
+    agents_used = Column(JSON)  # List of agent IDs used in this phase
+    total_cost = Column(Float, default=0.0)  # Total cost for this phase
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    outputs = Column(JSON, nullable=True)  # Phase outputs/results
+    meta = Column(JSON, nullable=True)  # Renamed from metadata to avoid SQLAlchemy conflict
+
+    # Relationships
+    pipeline = relationship("ResearchPipeline", back_populates="phases")
+
+
+class ResearchArtifact(Base):
+    """Research artifact model (papers, experiments, reports)."""
+
+    __tablename__ = "research_artifacts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    pipeline_id = Column(String, ForeignKey("research_pipelines.id"))
+    artifact_type = Column(String, nullable=False)  # paper, experiment, report, hypothesis
+    name = Column(String, nullable=False)
+    description = Column(Text)
+    content = Column(JSON)  # Structured content
+    file_path = Column(String, nullable=True)  # Path to file if stored locally
+    ipfs_hash = Column(String, nullable=True)  # IPFS hash if stored on IPFS
+    created_by = Column(String, ForeignKey("agents.agent_id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    meta = Column(JSON, nullable=True)  # Renamed from metadata to avoid SQLAlchemy conflict
+
+    # Relationships
+    pipeline = relationship("ResearchPipeline", back_populates="artifacts")
+    creator_agent = relationship("Agent", foreign_keys=[created_by])
+
+
+class AgentReputation(Base):
+    """Agent reputation tracking model."""
+
+    __tablename__ = "agent_reputations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_id = Column(String, ForeignKey("agents.agent_id"))
+    total_tasks = Column(Integer, default=0)
+    successful_tasks = Column(Integer, default=0)
+    failed_tasks = Column(Integer, default=0)
+    average_quality_score = Column(Float, default=0.0)  # 0-1 scale
+    reputation_score = Column(Float, default=0.5)  # 0-1 scale, starts at 0.5
+    payment_multiplier = Column(Float, default=1.0)  # Based on reputation
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    meta = Column(JSON, nullable=True)  # Historical scores, feedback, etc. (renamed to avoid conflict)
+
+    # Relationships
+    agent = relationship("Agent", foreign_keys=[agent_id])
