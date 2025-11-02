@@ -8,14 +8,16 @@ from typing import Any
 
 try:
     from web3 import Web3
+    from web3.exceptions import ContractLogicError
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
     Web3 = None  # type: ignore[assignment]
+    ContractLogicError = Exception  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
 # -------- CONFIG --------
 RPC_URL = os.getenv("IDENTITY_REGISTRY_RPC_URL", "https://testnet.hashio.io/api")
-PRIVATE_KEY = os.getenv("IDENTITY_REGISTRY_PRIVATE_KEY", "")
+PRIVATE_KEY = os.getenv("IDENTITY_REGISTRY_PRIVATE_KEY", "0x1194bDf550b41C9bF2BB5E86009D1617ae6B4279")
 IDENTITY_CONTRACT_ADDRESS = os.getenv(
     "IDENTITY_CONTRACT_ADDRESS",
     "0x1194bDf550b41C9bF2BB5E86009D1617ae6B4279",
@@ -25,11 +27,13 @@ IDENTITY_REGISTRY = None
 wallet_address = ""
 web3 = None
 
-if Web3 is not None and PRIVATE_KEY:
+if Web3 is not None:
     try:
         web3 = Web3(Web3.HTTPProvider(RPC_URL))
-        account = web3.eth.account.from_key(PRIVATE_KEY)
-        wallet_address = account.address
+
+        if PRIVATE_KEY:
+            account = web3.eth.account.from_key(PRIVATE_KEY)
+            wallet_address = account.address
 
         artifact_path = (
             Path(__file__).resolve().parents[1]
@@ -53,14 +57,9 @@ if Web3 is not None and PRIVATE_KEY:
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to initialise identity registry handler: %s", exc)
 else:
-    if Web3 is None:
-        logger.info(
-            "web3.py is not installed; identity registry handlers operating in stub mode."
-        )
-    else:
-        logger.info(
-            "IDENTITY_REGISTRY_PRIVATE_KEY not configured; identity registry handlers disabled."
-        )
+    logger.info(
+        "web3.py is not installed; identity registry handlers operating in stub mode."
+    )
 
 
 def _ensure_registry() -> None:
@@ -74,6 +73,10 @@ def _ensure_registry() -> None:
 # -------- WRITE FUNCTIONS --------
 def register_agent(domain: str, agent_address: str = None):
     _ensure_registry()
+    if not PRIVATE_KEY:
+        raise RuntimeError(
+            "IDENTITY_REGISTRY_PRIVATE_KEY not configured; cannot register agents."
+        )
     if agent_address is None:
         agent_address = wallet_address
 
@@ -95,6 +98,10 @@ def register_agent(domain: str, agent_address: str = None):
 
 def update_agent(agent_id: int, new_domain: str = "", new_address: str = ""):
     _ensure_registry()
+    if not PRIVATE_KEY:
+        raise RuntimeError(
+            "IDENTITY_REGISTRY_PRIVATE_KEY not configured; cannot update agents."
+        )
 
     tx = IDENTITY_REGISTRY.functions.updateAgent(agent_id, new_domain, new_address).build_transaction({
         "from": wallet_address,
@@ -114,30 +121,53 @@ def update_agent(agent_id: int, new_domain: str = "", new_address: str = ""):
 def get_agent(agent_id: int):
     _ensure_registry()
     try:
+        if not agent_exists(agent_id):
+            return None
         agent = IDENTITY_REGISTRY.functions.getAgent(agent_id).call()
         return agent
-    except Exception as e:
-        print("❌ Error:", e)
+    except ContractLogicError as exc:  # pragma: no cover - optional dependency
+        logger.debug("getAgent(%s) reverted: %s", agent_id, exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to get agent %s: %s", agent_id, exc)
         return None
 
 
 def resolve_by_domain(domain: str):
     _ensure_registry()
     try:
+        domains = get_all_domains()
+        if domains and domain not in domains:
+            logger.debug("Domain %s not registered", domain)
+            return None
+
         agent = IDENTITY_REGISTRY.functions.resolveByDomain(domain).call()
         return agent
-    except Exception as e:
-        print("❌ Error:", e)
+    except ContractLogicError as exc:  # pragma: no cover - optional dependency
+        logger.debug("resolveByDomain(%s) reverted: %s", domain, exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to resolve domain %s: %s", domain, exc)
         return None
 
 
 def resolve_by_address(address: str):
     _ensure_registry()
     try:
+        if Web3 is not None:
+            try:
+                address = Web3.to_checksum_address(address)
+            except ValueError:
+                logger.debug("Invalid agent address: %s", address)
+                return None
+
         agent = IDENTITY_REGISTRY.functions.resolveByAddress(address).call()
         return agent
-    except Exception as e:
-        print("❌ Error:", e)
+    except ContractLogicError as exc:  # pragma: no cover - optional dependency
+        logger.debug("resolveByAddress(%s) reverted: %s", address, exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to resolve address %s: %s", address, exc)
         return None
 
 
@@ -159,10 +189,15 @@ def get_agent_reputation(agent_id: int):
     """
     _ensure_registry()
     try:
+        if not agent_exists(agent_id):
+            return None
         score = IDENTITY_REGISTRY.functions.getAgentReputation(agent_id).call()
         return score
-    except Exception as e:
-        print("❌ Error:", e)
+    except ContractLogicError as exc:  # pragma: no cover - optional dependency
+        logger.debug("getAgentReputation(%s) reverted: %s", agent_id, exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load reputation for agent %s: %s", agent_id, exc)
         return None
 
 
@@ -174,10 +209,15 @@ def get_agent_vote_counts(agent_id: int):
     """
     _ensure_registry()
     try:
+        if not agent_exists(agent_id):
+            return None
         up_votes, down_votes = IDENTITY_REGISTRY.functions.getAgentVoteCounts(agent_id).call()
         return {"upVotes": up_votes, "downVotes": down_votes}
-    except Exception as e:
-        print("❌ Error:", e)
+    except ContractLogicError as exc:  # pragma: no cover - optional dependency
+        logger.debug("getAgentVoteCounts(%s) reverted: %s", agent_id, exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load vote counts for agent %s: %s", agent_id, exc)
         return None
 
 
@@ -189,10 +229,15 @@ def get_agent_validation(agent_id: int):
     """
     _ensure_registry()
     try:
+        if not agent_exists(agent_id):
+            return None
         validation_count, average_score = IDENTITY_REGISTRY.functions.getAgentValidation(agent_id).call()
         return {"validationCount": validation_count, "averageScore": average_score}
-    except Exception as e:
-        print("❌ Error:", e)
+    except ContractLogicError as exc:  # pragma: no cover - optional dependency
+        logger.debug("getAgentValidation(%s) reverted: %s", agent_id, exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load validation info for agent %s: %s", agent_id, exc)
         return None
 
 
@@ -209,6 +254,8 @@ def get_agent_full_info(agent_id: int):
     """
     _ensure_registry()
     try:
+        if not agent_exists(agent_id):
+            return None
         result = IDENTITY_REGISTRY.functions.getAgentFullInfo(agent_id).call()
         agent_info, reputation_score, up_votes, down_votes, validation_count, validation_score = result
 
@@ -224,8 +271,11 @@ def get_agent_full_info(agent_id: int):
             "validationCount": validation_count,
             "validationScore": validation_score
         }
-    except Exception as e:
-        print("❌ Error:", e)
+    except ContractLogicError as exc:  # pragma: no cover - optional dependency
+        logger.debug("getAgentFullInfo(%s) reverted: %s", agent_id, exc)
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load full info for agent %s: %s", agent_id, exc)
         return None
 
 
@@ -239,8 +289,11 @@ def get_all_domains():
     try:
         domains = IDENTITY_REGISTRY.functions.getAllDomains().call()
         return domains
-    except Exception as e:
-        print("❌ Error:", e)
+    except ContractLogicError as exc:  # pragma: no cover - optional dependency
+        logger.debug("getAllDomains reverted: %s", exc)
+        return []
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load domains: %s", exc)
         return []
 
 
@@ -266,8 +319,20 @@ def get_domains_paginated(offset: int = 0, limit: int = 100):
             "offset": offset,
             "limit": limit
         }
-    except Exception as e:
-        print("❌ Error:", e)
+    except ContractLogicError as exc:  # pragma: no cover - optional dependency
+        logger.debug(
+            "getDomainsPaginated(offset=%s, limit=%s) reverted: %s", offset, limit, exc
+        )
+        return {
+            "domains": [],
+            "total": 0,
+            "offset": offset,
+            "limit": limit
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to load paginated domains (offset=%s, limit=%s): %s", offset, limit, exc
+        )
         return {
             "domains": [],
             "total": 0,

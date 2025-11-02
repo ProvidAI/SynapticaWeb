@@ -1,13 +1,12 @@
 """Agent tools - Negotiator, Executor, and Verifier as callable tools."""
 
-import asyncio
 import logging
 import os
 from typing import Any, Dict, Optional
 
 from strands import tool
 
-from shared.a2a import A2AAgentClient, run_async_task_sync
+from shared.a2a import A2AAgentClient
 from shared.openai_agent import create_openai_agent
 
 from agents.executor.system_prompt import EXECUTOR_SYSTEM_PROMPT
@@ -78,7 +77,7 @@ def get_openai_api_key() -> str:
     return api_key
 
 
-def negotiator_agent(
+async def negotiator_agent(
     task_id: str,
     capability_requirements: str,
     budget_limit: Optional[float] = None,
@@ -134,11 +133,9 @@ def negotiator_agent(
         client = _get_a2a_client("NEGOTIATOR_A2A_URL")
         if client:
             try:
-                response_text = run_async_task_sync(
-                    client.invoke_text(
-                        query,
-                        metadata=metadata or None,
-                    )
+                response_text = await client.invoke_text(
+                    query,
+                    metadata=metadata or None,
                 )
                 return {
                     "success": True,
@@ -168,7 +165,7 @@ def negotiator_agent(
             ],
         )
 
-        response = asyncio.run(agent.run(query))
+        response = await agent.run(query)
 
         return {
             "success": True,
@@ -185,7 +182,7 @@ def negotiator_agent(
         }
 
 
-def authorize_payment_request(payment_id: str) -> Dict[str, Any]:
+async def authorize_payment_request(payment_id: str) -> Dict[str, Any]:
     """Authorize an x402 payment proposal by funding TaskEscrow.
 
     This helper is reserved for the Orchestrator agent after it reviews and
@@ -200,16 +197,14 @@ def authorize_payment_request(payment_id: str) -> Dict[str, Any]:
     """
 
     try:
-        import asyncio
-
-        response = asyncio.run(_authorize_payment(payment_id))
+        response = await _authorize_payment(payment_id)
         return {"success": True, **response}
     except Exception as exc:
         return {"success": False, "payment_id": payment_id, "error": str(exc)}
 
 
 @tool
-def executor_agent(
+async def executor_agent(
     task_id: str,
     agent_metadata: Dict[str, Any],
     task_description: str,
@@ -265,11 +260,9 @@ def executor_agent(
         client = _get_a2a_client("EXECUTOR_A2A_URL")
         if client:
             try:
-                response_text = run_async_task_sync(
-                    client.invoke_text(
-                        query,
-                        metadata={"task_id": task_id} if task_id else None,
-                    )
+                response_text = await client.invoke_text(
+                    query,
+                    metadata={"task_id": task_id} if task_id else None,
                 )
                 return {
                     "success": True,
@@ -299,7 +292,7 @@ def executor_agent(
             ],
         )
 
-        response = asyncio.run(agent.run(query))
+        response = await agent.run(query)
 
         return {
             "success": True,
@@ -317,7 +310,7 @@ def executor_agent(
 
 
 @tool
-def verifier_agent(
+async def verifier_agent(
     task_id: str,
     payment_id: str,
     task_result: Dict[str, Any],
@@ -375,15 +368,13 @@ def verifier_agent(
         client = _get_a2a_client("VERIFIER_A2A_URL")
         if client:
             try:
-                response_text = run_async_task_sync(
-                    client.invoke_text(
-                        query,
-                        metadata={
-                            "task_id": task_id,
-                            "payment_id": payment_id,
-                            "mode": verification_mode,
-                        },
-                    )
+                response_text = await client.invoke_text(
+                    query,
+                    metadata={
+                        "task_id": task_id,
+                        "payment_id": payment_id,
+                        "mode": verification_mode,
+                    },
                 )
                 return {
                     "success": True,
@@ -421,7 +412,7 @@ def verifier_agent(
             ],
         )
 
-        response = asyncio.run(agent.run(query))
+        response = await agent.run(query)
 
         return {
             "success": True,
