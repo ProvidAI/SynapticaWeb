@@ -18,7 +18,7 @@ RPC_URL = os.getenv("IDENTITY_REGISTRY_RPC_URL", "https://testnet.hashio.io/api"
 PRIVATE_KEY = os.getenv("IDENTITY_REGISTRY_PRIVATE_KEY", "")
 IDENTITY_CONTRACT_ADDRESS = os.getenv(
     "IDENTITY_CONTRACT_ADDRESS",
-    "0x1194bDf550b41C9bF2BB5E86009D1617ae6B4279",
+    "0x1F26e1Fa2DE63B9bd993BDb2214fB793031A2E89",
 )
 
 IDENTITY_REGISTRY = None
@@ -114,20 +114,24 @@ def update_agent(agent_id: int, new_domain: str = "", new_address: str = ""):
 def get_agent(agent_id: int):
     _ensure_registry()
     try:
+        logger.info(f"[get_agent] Getting agent ID {agent_id}")
         agent = IDENTITY_REGISTRY.functions.getAgent(agent_id).call()
+        logger.info(f"[get_agent] Agent {agent_id}: {agent}")
         return agent
     except Exception as e:
-        print("❌ Error:", e)
+        logger.error(f"[get_agent] Error getting agent {agent_id}: {e}", exc_info=True)
         return None
 
 
 def resolve_by_domain(domain: str):
     _ensure_registry()
     try:
+        logger.info(f"[resolve_by_domain] Resolving domain '{domain}'")
         agent = IDENTITY_REGISTRY.functions.resolveByDomain(domain).call()
+        logger.info(f"[resolve_by_domain] Domain '{domain}' resolved to: {agent}")
         return agent
     except Exception as e:
-        print("❌ Error:", e)
+        logger.error(f"[resolve_by_domain] Error resolving domain '{domain}': {e}", exc_info=True)
         return None
 
 
@@ -143,7 +147,14 @@ def resolve_by_address(address: str):
 
 def get_agent_count():
     _ensure_registry()
-    return IDENTITY_REGISTRY.functions.getAgentCount().call()
+    try:
+        logger.info(f"[get_agent_count] Calling getAgentCount() on contract {IDENTITY_CONTRACT_ADDRESS}")
+        count = IDENTITY_REGISTRY.functions.getAgentCount().call()
+        logger.info(f"[get_agent_count] Agent count: {count}")
+        return count
+    except Exception as e:
+        logger.error(f"[get_agent_count] Error calling getAgentCount(): {e}", exc_info=True)
+        return 0
 
 
 def agent_exists(agent_id: int):
@@ -237,10 +248,14 @@ def get_all_domains():
     """
     _ensure_registry()
     try:
+        logger.info(f"[get_all_domains] Calling getAllDomains() on contract {IDENTITY_CONTRACT_ADDRESS}")
         domains = IDENTITY_REGISTRY.functions.getAllDomains().call()
+        logger.info(f"[get_all_domains] Successfully retrieved {len(domains)} domains: {domains}")
         return domains
     except Exception as e:
-        print("❌ Error:", e)
+        logger.error(f"[get_all_domains] Error calling getAllDomains(): {e}", exc_info=True)
+        logger.error(f"[get_all_domains] Contract address: {IDENTITY_CONTRACT_ADDRESS}")
+        logger.error(f"[get_all_domains] RPC URL: {RPC_URL}")
         return []
 
 

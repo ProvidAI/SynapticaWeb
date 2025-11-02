@@ -2,9 +2,14 @@
 
 import sys
 import os
+import logging
 from typing import List, Dict, Any
 
 from strands import tool
+
+# Set up logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 # Add shared to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../"))
@@ -23,7 +28,7 @@ from shared.handlers.validation_registry_handlers import (
 
 
 @tool
-async def find_agents(domain: str) -> List[Dict[str, Any]]:
+async def find_agents(domain: str) -> Dict[str, Any]:
     """
     Search for agents by domain keyword in the Identity Registry.
 
@@ -34,30 +39,38 @@ async def find_agents(domain: str) -> List[Dict[str, Any]]:
         domain: Domain keyword or description to search for (e.g., "trading", "oracle", "data analysis")
 
     Returns:
-        List of matching agents with basic info:
-        [
-            {
-                "agent_id": int,
-                "domain": str,
-                "address": str
-            },
-            ...
-        ]
+        Dictionary with all domains for AI filtering:
+        {
+            "all_domains": List[str],
+            "search_query": str,
+            "instruction": str
+        }
 
     Example:
         agents = await find_agents("trading bots for cryptocurrency")
         # AI will identify relevant domains like "crypto-trading-bot", "trading-analytics", etc.
     """
     try:
+        logger.info(f"[find_agents] Starting search for domain: '{domain}'")
+
         # Get all registered domains from the contract
         all_domains = get_all_domains()
 
+        logger.info(f"[find_agents] Retrieved {len(all_domains) if all_domains else 0} domains from registry")
+        logger.info(f"[find_agents] Domains: {all_domains}")
+
         if not all_domains:
-            return []
+            logger.warning(f"[find_agents] No domains found in registry for search query: '{domain}'")
+            return {
+                "all_domains": [],
+                "search_query": domain,
+                "instruction": "No domains found in the registry. The ERC-8004 registry may be empty or unreachable."
+            }
 
         # Return all domains for AI to filter
         # The AI agent will receive this list and determine which are relevant
         # Then it will call resolve_by_domain for each relevant one
+        logger.info(f"[find_agents] Successfully returning {len(all_domains)} domains for AI filtering")
         return {
             "all_domains": all_domains,
             "search_query": domain,
@@ -65,8 +78,12 @@ async def find_agents(domain: str) -> List[Dict[str, Any]]:
         }
 
     except Exception as e:
-        print(f"Error in find_agents: {e}")
-        return []
+        logger.error(f"[find_agents] Error searching for domain '{domain}': {e}", exc_info=True)
+        return {
+            "all_domains": [],
+            "search_query": domain,
+            "instruction": f"Error occurred while searching registry: {str(e)}"
+        }
 
 
 @tool
@@ -83,7 +100,8 @@ async def resolve_agent_by_domain(domain: str) -> Dict[str, Any]:
         {
             "agent_id": int,
             "domain": str,
-            "address": str
+            "address": str,
+            "success": bool
         }
 
     Example:
@@ -91,17 +109,37 @@ async def resolve_agent_by_domain(domain: str) -> Dict[str, Any]:
         agent = await resolve_agent_by_domain("crypto-trading-bot")
     """
     try:
+        logger.info(f"[resolve_agent_by_domain] Resolving domain: '{domain}'")
+
         agent_data = resolve_by_domain(domain)
+
         if agent_data:
+            logger.info(f"[resolve_agent_by_domain] Successfully resolved '{domain}' -> Agent ID: {agent_data[0]}, Address: {agent_data[2]}")
             return {
                 "agent_id": agent_data[0],
                 "domain": agent_data[1],
-                "address": agent_data[2]
+                "address": agent_data[2],
+                "success": True
             }
-        return None
+        else:
+            logger.warning(f"[resolve_agent_by_domain] Domain '{domain}' not found in registry or returned None")
+            return {
+                "agent_id": None,
+                "domain": domain,
+                "address": None,
+                "success": False,
+                "error": "Domain not found in registry"
+            }
+
     except Exception as e:
-        print(f"Error resolving domain {domain}: {e}")
-        return None
+        logger.error(f"[resolve_agent_by_domain] Error resolving domain '{domain}': {e}", exc_info=True)
+        return {
+            "agent_id": None,
+            "domain": domain,
+            "address": None,
+            "success": False,
+            "error": str(e)
+        }
 
 
 @tool
@@ -152,27 +190,41 @@ async def compare_agent_scores(agent_ids: List[int]) -> Dict[str, Any]:
         best = comparison["best_agent"]
     """
     try:
+        logger.info(f"[compare_agent_scores] Starting comparison for {len(agent_ids)} agents: {agent_ids}")
+
         agents_with_scores = []
 
         for agent_id in agent_ids:
             try:
+                logger.info(f"[compare_agent_scores] Processing agent ID: {agent_id}")
+
                 # Get agent identity
                 agent_data = get_agent(agent_id)
                 if not agent_data:
+                    logger.warning(f"[compare_agent_scores] Agent {agent_id} not found in identity registry, skipping")
                     continue
+
+                logger.info(f"[compare_agent_scores] Agent {agent_id} identity: domain='{agent_data[1]}', address={agent_data[2]}")
 
                 # Get reputation data
                 rep_info = get_full_reputation_info(agent_id)
                 if not rep_info:
+                    logger.warning(f"[compare_agent_scores] No reputation data for agent {agent_id}, using defaults")
                     rep_info = {"reputationScore": 0, "upVotes": 0, "downVotes": 0}
+                else:
+                    logger.info(f"[compare_agent_scores] Agent {agent_id} reputation: score={rep_info['reputationScore']}, upVotes={rep_info['upVotes']}, downVotes={rep_info['downVotes']}")
 
                 # Get validation data
                 val_info = get_full_validation_info(agent_id)
                 if not val_info:
+                    logger.warning(f"[compare_agent_scores] No validation data for agent {agent_id}, using defaults")
                     val_info = {"validationCount": 0, "averageScore": 0}
+                else:
+                    logger.info(f"[compare_agent_scores] Agent {agent_id} validation: count={val_info['validationCount']}, avgScore={val_info['averageScore']}")
 
                 # Calculate quality score
                 quality_score = calculate_quality_score(rep_info, val_info)
+                logger.info(f"[compare_agent_scores] Agent {agent_id} quality score: {quality_score}/100")
 
                 agents_with_scores.append({
                     "agent_id": agent_data[0],
@@ -191,7 +243,7 @@ async def compare_agent_scores(agent_ids: List[int]) -> Dict[str, Any]:
                 })
 
             except Exception as e:
-                print(f"Error processing agent {agent_id}: {e}")
+                logger.error(f"[compare_agent_scores] Error processing agent {agent_id}: {e}", exc_info=True)
                 continue
 
         # Sort by quality score (descending)
@@ -201,13 +253,17 @@ async def compare_agent_scores(agent_ids: List[int]) -> Dict[str, Any]:
         for idx, agent in enumerate(agents_with_scores, 1):
             agent["rank"] = idx
 
+        logger.info(f"[compare_agent_scores] Successfully ranked {len(agents_with_scores)} agents")
+        if agents_with_scores:
+            logger.info(f"[compare_agent_scores] Best agent: ID={agents_with_scores[0]['agent_id']}, domain='{agents_with_scores[0]['domain']}', score={agents_with_scores[0]['quality_score']}")
+
         return {
             "ranked_agents": agents_with_scores,
             "best_agent": agents_with_scores[0] if agents_with_scores else None
         }
 
     except Exception as e:
-        print(f"Error in compare_agent_scores: {e}")
+        logger.error(f"[compare_agent_scores] Error in compare_agent_scores: {e}", exc_info=True)
         return {
             "ranked_agents": [],
             "best_agent": None

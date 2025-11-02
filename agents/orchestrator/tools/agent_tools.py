@@ -78,6 +78,7 @@ def get_openai_api_key() -> str:
     return api_key
 
 
+@tool
 async def negotiator_agent(
     task_id: str,
     capability_requirements: str,
@@ -203,7 +204,7 @@ async def negotiator_agent(
             "error": str(e),
         }
 
-
+@tool
 async def authorize_payment_request(payment_id: str) -> Dict[str, Any]:
     """Authorize an x402 payment proposal by funding TaskEscrow.
 

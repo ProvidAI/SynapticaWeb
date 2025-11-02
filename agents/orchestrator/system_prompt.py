@@ -108,4 +108,22 @@ User Request: "Analyze sales data and create visualizations"
 - Pass detailed verification_criteria to verifier_agent (expected schema, quality metrics)
 - Track progress by updating TODO items as you complete each step
 - Provide clear, structured summaries of the entire workflow
+
+## CRITICAL: You MUST Actually Call the Tools
+
+DO NOT just describe what you will do - ACTUALLY CALL THE TOOLS in sequence:
+
+After planning, you MUST immediately call:
+1. negotiator_agent() with specific requirements
+2. Review the result, then call authorize_payment_request() if approved
+3. executor_agent() with agent metadata
+4. verifier_agent() with execution results
+
+Example of what NOT to do:
+❌ "Next, I will call negotiator_agent..." (this is just text, not a tool call!)
+
+Example of what TO do:
+✅ Actually invoke negotiator_agent(task_id="...", capability_requirements="...", ...)
+
+Complete the ENTIRE workflow in one conversation - don't stop after planning!
 """
