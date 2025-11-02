@@ -1,6 +1,5 @@
 """Agent tools - Negotiator, Executor, and Verifier as callable tools."""
 
-import asyncio
 import logging
 import os
 from typing import Any, Dict, Optional
@@ -9,6 +8,7 @@ from strands import tool
 
 from shared.a2a import A2AAgentClient, run_async_task_sync
 from shared.openai_agent import create_openai_agent
+from shared.task_progress import update_progress
 
 from agents.executor.system_prompt import EXECUTOR_SYSTEM_PROMPT
 from agents.executor.tools import (
@@ -78,7 +78,7 @@ def get_openai_api_key() -> str:
     return api_key
 
 
-def negotiator_agent(
+async def negotiator_agent(
     task_id: str,
     capability_requirements: str,
     budget_limit: Optional[float] = None,
@@ -105,6 +105,13 @@ def negotiator_agent(
         - negotiation_summary: Summary of negotiation
     """
     try:
+        # Update progress: negotiator started
+        update_progress(task_id, "negotiator", "running", {
+            "message": "Finding and negotiating with marketplace agents",
+            "capability_requirements": capability_requirements,
+            "budget_limit": budget_limit
+        })
+
         query = f"""
         Task ID: {task_id}
 
@@ -168,7 +175,13 @@ def negotiator_agent(
             ],
         )
 
-        response = asyncio.run(agent.run(query))
+        response = await agent.run(query)
+
+        # Update progress: negotiator completed
+        update_progress(task_id, "negotiator", "completed", {
+            "message": "Agent negotiation completed",
+            "response": str(response)[:500]  # Truncate for progress log
+        })
 
         return {
             "success": True,
@@ -178,6 +191,12 @@ def negotiator_agent(
         }
 
     except Exception as e:
+        # Update progress: negotiator failed
+        update_progress(task_id, "negotiator", "failed", {
+            "message": "Agent negotiation failed",
+            "error": str(e)
+        })
+
         return {
             "success": False,
             "task_id": task_id,
@@ -185,7 +204,7 @@ def negotiator_agent(
         }
 
 
-def authorize_payment_request(payment_id: str) -> Dict[str, Any]:
+async def authorize_payment_request(payment_id: str) -> Dict[str, Any]:
     """Authorize an x402 payment proposal by funding TaskEscrow.
 
     This helper is reserved for the Orchestrator agent after it reviews and
@@ -200,16 +219,14 @@ def authorize_payment_request(payment_id: str) -> Dict[str, Any]:
     """
 
     try:
-        import asyncio
-
-        response = asyncio.run(_authorize_payment(payment_id))
+        response = await _authorize_payment(payment_id)
         return {"success": True, **response}
     except Exception as exc:
         return {"success": False, "payment_id": payment_id, "error": str(exc)}
 
 
 @tool
-def executor_agent(
+async def executor_agent(
     task_id: str,
     agent_metadata: Dict[str, Any],
     task_description: str,
@@ -237,6 +254,12 @@ def executor_agent(
         - execution_log: Execution details and any retries
     """
     try:
+        # Update progress: executor started
+        update_progress(task_id, "executor", "running", {
+            "message": "Executing task with selected agent",
+            "agent_metadata": agent_metadata
+        })
+
         params_str = (
             f"\nExecution Parameters: {execution_parameters}"
             if execution_parameters
@@ -299,7 +322,13 @@ def executor_agent(
             ],
         )
 
-        response = asyncio.run(agent.run(query))
+        response = await agent.run(query)
+
+        # Update progress: executor completed
+        update_progress(task_id, "executor", "completed", {
+            "message": "Task execution completed",
+            "response": str(response)[:500]  # Truncate for progress log
+        })
 
         return {
             "success": True,
@@ -309,6 +338,12 @@ def executor_agent(
         }
 
     except Exception as e:
+        # Update progress: executor failed
+        update_progress(task_id, "executor", "failed", {
+            "message": "Task execution failed",
+            "error": str(e)
+        })
+
         return {
             "success": False,
             "task_id": task_id,
@@ -317,7 +352,7 @@ def executor_agent(
 
 
 @tool
-def verifier_agent(
+async def verifier_agent(
     task_id: str,
     payment_id: str,
     task_result: Dict[str, Any],
@@ -349,6 +384,13 @@ def verifier_agent(
         - payment_status: Payment released/rejected
     """
     try:
+        # Update progress: verifier started
+        update_progress(task_id, "verifier", "running", {
+            "message": "Verifying task results and quality",
+            "verification_mode": verification_mode,
+            "payment_id": payment_id
+        })
+
         query = f"""
         Task ID: {task_id}
         Payment ID: {payment_id}
@@ -421,7 +463,7 @@ def verifier_agent(
             ],
         )
 
-        response = asyncio.run(agent.run(query))
+        response = await agent.run(query)
 
         return {
             "success": True,
