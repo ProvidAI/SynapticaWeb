@@ -72,6 +72,11 @@ start_agent() {
 # ---------------------------------------------------------------------------
 require_env OPENAI_API_KEY
 
+if [[ -z "${SMOKE_TASK_ID:-}" ]]; then
+  SMOKE_TASK_ID="a2a-smoke-$(date +%s)-$RANDOM"
+fi
+export SMOKE_TASK_ID
+
 # Ensure database schema exists (idempotent)
 echo "Ensuring database schema..."
 python3 - <<'PY'
@@ -112,19 +117,29 @@ echo "\nA2A endpoints configured:" \
 # ---------------------------------------------------------------------------
 echo "Running orchestrator -> negotiator smoke test..."
 
+# shellcheck disable=SC2016
 python3 - <<'PY'
+import asyncio
 import json
+import os
 from agents.orchestrator.tools.agent_tools import negotiator_agent
 
-result = negotiator_agent(
-    task_id="a2a-smoke-task",
-    capability_requirements="Provide a short acknowledgement message for the smoke test.",
-    budget_limit=10.0,
-    min_reputation_score=0.5,
-)
 
-print("Negotiator tool result:")
-print(json.dumps(result, indent=2))
+async def main() -> None:
+    task_id = os.environ["SMOKE_TASK_ID"]
+    result = await negotiator_agent(
+        task_id=task_id,
+        capability_requirements="Provide a short acknowledgement message for the smoke test. Search and list out all research agents",
+        budget_limit=10.0,
+        min_reputation_score=0.5,
+    )
+
+    print("Negotiator tool result:")
+    print(f"Using task_id: {task_id}")
+    print(json.dumps(result, indent=2))
+
+
+asyncio.run(main())
 PY
 
 # ---------------------------------------------------------------------------
@@ -174,21 +189,20 @@ from agents.verifier.tools.payment_tools import release_payment
 
 
 async def main() -> None:
+    task_id = os.environ["SMOKE_TASK_ID"]
     payment = await create_payment_request(
-        task_id="a2a-smoke-task",
+        task_id=task_id,
         from_agent_id="orchestrator-agent",
         to_agent_id="worker-agent",
         to_hedera_account=os.environ.get("SMOKE_WORKER_ACCOUNT", "0.0.987654"),
         amount=0.01,
         description="Hackathon A2A smoke test",
     )
+    print(f"Using task_id: {task_id}")
     print("Payment proposal created:\n", json.dumps(payment, indent=2))
 
     try:
-        authorization = await asyncio.to_thread(
-            authorize_payment_request,
-            payment["payment_id"],
-        )
+        authorization = await authorize_payment_request(payment["payment_id"])
         print("Authorization result:\n", json.dumps(authorization, indent=2))
     except Exception as exc:  # noqa: BLE001
         print("Authorization failed:", exc)

@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 from strands import tool
 
-from shared.a2a import A2AAgentClient, run_async_task_sync
+from shared.a2a import A2AAgentClient
 from shared.openai_agent import create_openai_agent
 from shared.task_progress import update_progress
 
@@ -144,11 +144,9 @@ async def negotiator_agent(
         client = _get_a2a_client("NEGOTIATOR_A2A_URL")
         if client:
             try:
-                response_text = run_async_task_sync(
-                    client.invoke_text(
-                        query,
-                        metadata=metadata or None,
-                    )
+                response_text = await client.invoke_text(
+                    query,
+                    metadata=metadata or None,
                 )
                 return {
                     "success": True,
@@ -296,11 +294,9 @@ async def executor_agent(
         client = _get_a2a_client("EXECUTOR_A2A_URL")
         if client:
             try:
-                response_text = run_async_task_sync(
-                    client.invoke_text(
-                        query,
-                        metadata={"task_id": task_id} if task_id else None,
-                    )
+                response_text = await client.invoke_text(
+                    query,
+                    metadata={"task_id": task_id} if task_id else None,
                 )
                 return {
                     "success": True,
@@ -432,15 +428,13 @@ async def verifier_agent(
         client = _get_a2a_client("VERIFIER_A2A_URL")
         if client:
             try:
-                response_text = run_async_task_sync(
-                    client.invoke_text(
-                        query,
-                        metadata={
-                            "task_id": task_id,
-                            "payment_id": payment_id,
-                            "mode": verification_mode,
-                        },
-                    )
+                response_text = await client.invoke_text(
+                    query,
+                    metadata={
+                        "task_id": task_id,
+                        "payment_id": payment_id,
+                        "mode": verification_mode,
+                    },
                 )
                 return {
                     "success": True,
