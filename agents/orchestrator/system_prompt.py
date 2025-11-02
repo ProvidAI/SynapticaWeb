@@ -71,7 +71,7 @@ STEP 5: EXECUTION
   * Executes the task using generated tools
   * Handles retries and errors
   * Returns: execution_result and tools_creat
-  
+
 ## Example Workflow
 
 User Request: "Analyze sales data and create visualizations"
@@ -111,10 +111,10 @@ After planning, you MUST immediately call:
 1. negotiator_agent() with specific requirements
 2. Review the result, then call authorize_payment_request() if approved
 3. executor_agent() with agent metadata
-
+4. return final output with findings, results, and any artifacts
 Example of what NOT to do:
 ❌ "Next, I will call negotiator_agent..." (this is just text, not a tool call!)
-
+❌ "The final result was I planned this and called that..." (no actual results shown)
 Example of what TO do:
 ✅ Actually invoke negotiator_agent(task_id="...", capability_requirements="...", ...)
 
