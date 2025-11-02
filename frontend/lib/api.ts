@@ -128,7 +128,8 @@ export async function pollTaskStatus(
         }
 
         // Check if task is complete
-        if (status.status === 'COMPLETE' || status.status === 'FAILED') {
+        const normalizedStatus = status.status?.toLowerCase();
+        if (normalizedStatus === 'completed' || normalizedStatus === 'failed') {
           resolve(status);
           return;
         }
