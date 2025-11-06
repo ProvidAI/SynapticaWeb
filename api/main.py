@@ -2,11 +2,12 @@
 
 import os
 import uuid
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -45,7 +46,14 @@ def update_task_progress(task_id: str, step: str, status: str, data: Optional[Di
     })
 
     tasks_storage[task_id]["current_step"] = step
-    tasks_storage[task_id]["status"] = status
+
+    # Only update overall task status when orchestrator completes/fails
+    # Intermediate steps (planning, negotiator, executor) shouldn't affect overall status
+    if step == "orchestrator" and status in ["completed", "failed"]:
+        tasks_storage[task_id]["status"] = status
+    elif tasks_storage[task_id]["status"] not in ["completed", "failed"]:
+        # Keep as "processing" for all intermediate steps
+        tasks_storage[task_id]["status"] = "processing"
 
 
 # Pydantic models for API requests/responses
@@ -191,32 +199,10 @@ def list_a2a_events(limit: int = 50) -> List[A2AEventResponse]:
         session.close()
 
 
-@app.post("/execute", response_model=TaskResponse)
-async def execute_task(request: TaskRequest) -> TaskResponse:
-    """
-    Execute a task using the orchestrator agent.
-
-    The orchestrator will:
-    1. Analyze the task and determine required capabilities
-    2. Call negotiator_agent to discover and pay for suitable marketplace agents
-    3. Call executor_agent to execute the task using dynamic tools
-    4. Call verifier_agent to validate results and release payments
-
-    Args:
-        request: Task request with description and optional parameters
-
-    Returns:
-        TaskResponse with task ID, status, and results
-    """
-    task_id = str(uuid.uuid4())
-
-    # Initialize task in storage
-    tasks_storage[task_id] = {
-        "task_id": task_id,
-        "status": "processing",
-        "progress": [],
-        "current_step": "initializing"
-    }
+async def run_orchestrator_task(task_id: str, request: TaskRequest):
+    """Background task to run the orchestrator agent."""
+    import logging
+    logger = logging.getLogger(__name__)
 
     try:
         # Update progress - initialization
@@ -267,8 +253,6 @@ async def execute_task(request: TaskRequest) -> TaskResponse:
         result = await orchestrator.run(query)
 
         # Log the full orchestrator response
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info("========== ORCHESTRATOR RESPONSE START ==========")
         logger.info(f"{result}")
         logger.info("========== ORCHESTRATOR RESPONSE END ==========")
@@ -285,17 +269,9 @@ async def execute_task(request: TaskRequest) -> TaskResponse:
             "workflow": "negotiator -> executor -> verifier",
         }
 
-        return TaskResponse(
-            task_id=task_id,
-            status="completed",
-            result={
-                "orchestrator_response": str(result),
-                "workflow": "negotiator -> executor -> verifier",
-            },
-        )
-
     except Exception as e:
         # Update error status
+        logger.error(f"Task {task_id} failed: {e}", exc_info=True)
         update_task_progress(task_id, "orchestrator", "failed", {
             "error": str(e)
         })
@@ -303,11 +279,45 @@ async def execute_task(request: TaskRequest) -> TaskResponse:
         tasks_storage[task_id]["status"] = "failed"
         tasks_storage[task_id]["error"] = str(e)
 
-        return TaskResponse(
-            task_id=task_id,
-            status="failed",
-            error=str(e),
-        )
+
+@app.post("/execute", response_model=TaskResponse)
+async def execute_task(request: TaskRequest, background_tasks: BackgroundTasks) -> TaskResponse:
+    """
+    Execute a task using the orchestrator agent.
+
+    The orchestrator will:
+    1. Analyze the task and determine required capabilities
+    2. Call negotiator_agent to discover and pay for suitable marketplace agents
+    3. Call executor_agent to execute the task using dynamic tools
+    4. Call verifier_agent to validate results and release payments
+
+    Args:
+        request: Task request with description and optional parameters
+
+    Returns:
+        TaskResponse with task ID - execution happens in background
+    """
+    task_id = str(uuid.uuid4())
+
+    # Initialize task in storage
+    tasks_storage[task_id] = {
+        "task_id": task_id,
+        "status": "processing",
+        "progress": [],
+        "current_step": "initializing"
+    }
+
+    # Run orchestrator in background
+    background_tasks.add_task(run_orchestrator_task, task_id, request)
+
+    # Return immediately with task_id
+    return TaskResponse(
+        task_id=task_id,
+        status="processing",
+        result={
+            "message": "Task started, poll /api/tasks/{task_id} for progress"
+        }
+    )
 
 
 if __name__ == "__main__":

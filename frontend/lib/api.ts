@@ -70,7 +70,8 @@ export interface TaskStatusResponse {
  * Create a new task
  */
 export async function createTask(request: CreateTaskRequest): Promise<TaskResponse> {
-  const response = await fetch(`${API_BASE_URL}/tasks`, {
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+  const response = await fetch(`${backendUrl}/execute`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -90,7 +91,8 @@ export async function createTask(request: CreateTaskRequest): Promise<TaskRespon
  * Get task status
  */
 export async function getTask(taskId: string): Promise<TaskStatusResponse> {
-  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}`, {
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+  const response = await fetch(`${backendUrl}/api/tasks/${taskId}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',

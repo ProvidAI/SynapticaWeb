@@ -183,16 +183,19 @@ async def negotiator_agent(
         logger.info(f"[negotiator_agent] {response}")
         logger.info("[negotiator_agent] ===== NEGOTIATOR RESPONSE END =====")
 
-        # Update progress: negotiator completed
+        # Parse response to extract agent selection details for progress update
+        response_str = str(response)
+
+        # Update progress: negotiator completed with agent selection info
         update_progress(task_id, "negotiator", "completed", {
-            "message": "Agent negotiation completed",
-            "response": str(response)[:500]  # Truncate for progress log
+            "message": "Agent discovered and selected",
+            "response": response_str[:500]  # Truncate for progress log
         })
 
         return {
             "success": True,
             "task_id": task_id,
-            "response": str(response),
+            "response": response_str,
             "transport": "local",
         }
 

@@ -13,7 +13,7 @@ import { useTaskStore } from '@/store/taskStore'
 import type { TaskStatus } from '@/store/taskStore'
 import type { LucideIcon } from 'lucide-react'
 import { Sparkles, ShieldCheck, Coins, ArrowRight, Cpu, Layers } from 'lucide-react'
-import { createTask, pollTaskStatus } from '@/lib/api'
+import { createTask } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 
 const statusMessages: Record<TaskStatus, string> = {
@@ -90,7 +90,6 @@ export default function Home() {
     description,
     setStatus,
     setTaskId,
-    setPlan,
     setSelectedAgent,
     setPaymentDetails,
     addExecutionLog,
@@ -143,25 +142,11 @@ export default function Home() {
       setTaskId(response.task_id)
       addExecutionLog({
         timestamp: new Date().toLocaleTimeString(),
-        message: `Task created: ${response.task_id}`,
+        message: `Task created: ${response.task_id}. Orchestrator running in background...`,
         source: 'orchestrator',
       })
 
-      // Parse orchestrator response to extract plan
-      if (response.result?.orchestrator_response) {
-        const orchestratorResponse = response.result.orchestrator_response
-
-        if (orchestratorResponse.includes('capabilities') || orchestratorResponse.includes('plan')) {
-          const extractedPlan = {
-            capabilities: ['Python data analysis', 'CSV ingestion', 'Statistical analysis'],
-            estimatedCost: 10.0,
-            minReputation: 0.7,
-          }
-          setPlan(extractedPlan)
-          setStatus('APPROVING_PLAN')
-        }
-      }
-
+      // Start polling for progress updates
       await pollTaskUpdates(response.task_id)
     } catch (error: any) {
       console.error('Error creating task:', error)
@@ -190,19 +175,36 @@ export default function Home() {
       }
 
       try {
-        const task = await pollTaskStatus(taskId)
+        // Import getTask from api.ts instead of using pollTaskStatus
+        const { getTask } = await import('@/lib/api')
+        const task = await getTask(taskId)
+
+        console.log('[pollTaskUpdates] Received task update:', {
+          taskId: task.task_id,
+          status: task.status,
+          progressCount: task.progress?.length || 0,
+          currentStep: task.current_step,
+        })
 
         // Update progress logs from API
         if (task.progress && Array.isArray(task.progress)) {
+          console.log('[pollTaskUpdates] Setting progress logs:', task.progress.length, 'items')
           setProgressLogs(task.progress)
         }
 
         // Determine status from progress logs
         const lastProgress = task.progress?.[task.progress.length - 1]
         if (lastProgress) {
+          console.log('[pollTaskUpdates] Last progress step:', lastProgress.step, lastProgress.status)
           // Map backend progress to frontend status
-          if (lastProgress.step === 'negotiator') {
+          if (lastProgress.step === 'initialization' || lastProgress.step === 'orchestrator') {
+            setStatus('PLANNING')
+          } else if (lastProgress.step === 'planning') {
+            setStatus('APPROVING_PLAN')
+          } else if (lastProgress.step === 'negotiator') {
             setStatus('NEGOTIATING')
+          } else if (lastProgress.step === 'payment') {
+            setStatus('PAYING')
           } else if (lastProgress.step === 'executor') {
             setStatus('EXECUTING')
           } else if (lastProgress.step === 'verifier') {
@@ -215,7 +217,6 @@ export default function Home() {
           setResult({
             success: true,
             data: task.result,
-            report: 'Task completed successfully',
           })
           return
         } else if (task.status === 'failed') {
@@ -344,22 +345,6 @@ export default function Home() {
                                   <TaskStatusCard />
                                 )}
                               </div>
-
-                              {status === 'APPROVING_PLAN' && (
-                                <div className="rounded-2xl border border-sky-500/40 bg-sky-900/40 p-6 text-slate-100 shadow-[0_25px_60px_-35px_rgba(56,189,248,0.8)]">
-                                  <h3 className="text-lg font-semibold text-white">Approve research plan</h3>
-                                  <p className="mt-2 text-sm leading-relaxed text-slate-200">
-                                    Review the methodology, data sources, and cost. We'll match you with the best research specialist.
-                                  </p>
-                                  <Button
-                                    onClick={handleApprovePlan}
-                                    className="mt-4 w-full bg-gradient-to-r from-sky-500 via-indigo-500 to-purple-600 text-white shadow-lg shadow-sky-500/30 transition hover:opacity-90"
-                                    disabled={isProcessing}
-                                  >
-                                    Approve & start research
-                                  </Button>
-                                </div>
-                              )}
 
                               {(status === 'COMPLETE' || status === 'FAILED') && (
                                 <div className="space-y-4">

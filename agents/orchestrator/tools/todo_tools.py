@@ -1,6 +1,7 @@
 """TODO management tools for Orchestrator."""
 
 from typing import List, Dict, Any
+from shared.task_progress import update_progress
 
 
 async def create_todo_list(task_id: str, items: List[Dict[str, str]]) -> Dict[str, Any]:
@@ -34,13 +35,27 @@ async def create_todo_list(task_id: str, items: List[Dict[str, str]]) -> Dict[st
     try:
         task = db.query(Task).filter(Task.id == task_id).first()
         if not task:
-            raise ValueError(f"Task {task_id} not found")
+            # Task might not be in database yet (in-memory only), so just send progress update
+            pass
+        else:
+            # Store TODO list in task metadata
+            if task.meta is None:
+                task.meta = {}
 
-        # Store TODO list in task metadata
-        if task.meta is None:
-            task.meta = {}
+            task.meta["todo_list"] = [
+                {
+                    "id": f"todo_{i}",
+                    "status": "pending",
+                    **item,
+                }
+                for i, item in enumerate(items)
+            ]
 
-        task.meta["todo_list"] = [
+            db.commit()
+            db.refresh(task)
+
+        # Send progress update to frontend with TODO list
+        todo_list = [
             {
                 "id": f"todo_{i}",
                 "status": "pending",
@@ -49,13 +64,15 @@ async def create_todo_list(task_id: str, items: List[Dict[str, str]]) -> Dict[st
             for i, item in enumerate(items)
         ]
 
-        db.commit()
-        db.refresh(task)
+        update_progress(task_id, "planning", "completed", {
+            "message": "Created task plan with TODO list",
+            "todo_list": todo_list
+        })
 
         return {
             "task_id": task_id,
             "todo_count": len(items),
-            "todo_list": task.meta["todo_list"],
+            "todo_list": todo_list,
         }
     finally:
         db.close()

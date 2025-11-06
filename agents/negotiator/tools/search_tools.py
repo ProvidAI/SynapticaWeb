@@ -207,20 +207,28 @@ async def compare_agent_scores(agent_ids: List[int]) -> Dict[str, Any]:
                 logger.info(f"[compare_agent_scores] Agent {agent_id} identity: domain='{agent_data[1]}', address={agent_data[2]}")
 
                 # Get reputation data
-                rep_info = get_full_reputation_info(agent_id)
-                if not rep_info:
-                    logger.warning(f"[compare_agent_scores] No reputation data for agent {agent_id}, using defaults")
+                try:
+                    rep_info = get_full_reputation_info(agent_id)
+                    if not rep_info:
+                        logger.warning(f"[compare_agent_scores] No reputation data for agent {agent_id}, using defaults")
+                        rep_info = {"reputationScore": 0, "upVotes": 0, "downVotes": 0}
+                    else:
+                        logger.info(f"[compare_agent_scores] Agent {agent_id} reputation: score={rep_info['reputationScore']}, upVotes={rep_info['upVotes']}, downVotes={rep_info['downVotes']}")
+                except RuntimeError as e:
+                    logger.warning(f"[compare_agent_scores] Reputation registry unavailable for agent {agent_id}: {e}, using defaults")
                     rep_info = {"reputationScore": 0, "upVotes": 0, "downVotes": 0}
-                else:
-                    logger.info(f"[compare_agent_scores] Agent {agent_id} reputation: score={rep_info['reputationScore']}, upVotes={rep_info['upVotes']}, downVotes={rep_info['downVotes']}")
 
                 # Get validation data
-                val_info = get_full_validation_info(agent_id)
-                if not val_info:
-                    logger.warning(f"[compare_agent_scores] No validation data for agent {agent_id}, using defaults")
+                try:
+                    val_info = get_full_validation_info(agent_id)
+                    if not val_info:
+                        logger.warning(f"[compare_agent_scores] No validation data for agent {agent_id}, using defaults")
+                        val_info = {"validationCount": 0, "averageScore": 0}
+                    else:
+                        logger.info(f"[compare_agent_scores] Agent {agent_id} validation: count={val_info['validationCount']}, avgScore={val_info['averageScore']}")
+                except RuntimeError as e:
+                    logger.warning(f"[compare_agent_scores] Validation registry unavailable for agent {agent_id}: {e}, using defaults")
                     val_info = {"validationCount": 0, "averageScore": 0}
-                else:
-                    logger.info(f"[compare_agent_scores] Agent {agent_id} validation: count={val_info['validationCount']}, avgScore={val_info['averageScore']}")
 
                 # Calculate quality score
                 quality_score = calculate_quality_score(rep_info, val_info)
@@ -257,10 +265,14 @@ async def compare_agent_scores(agent_ids: List[int]) -> Dict[str, Any]:
         if agents_with_scores:
             logger.info(f"[compare_agent_scores] Best agent: ID={agents_with_scores[0]['agent_id']}, domain='{agents_with_scores[0]['domain']}', score={agents_with_scores[0]['quality_score']}")
 
-        return {
+        result = {
             "ranked_agents": agents_with_scores,
             "best_agent": agents_with_scores[0] if agents_with_scores else None
         }
+
+        # Send progress update with discovered agents (extract task_id from context if available)
+        # Note: We don't have task_id here, but the update_progress call will be made by the negotiator_agent caller
+        return result
 
     except Exception as e:
         logger.error(f"[compare_agent_scores] Error in compare_agent_scores: {e}", exc_info=True)
