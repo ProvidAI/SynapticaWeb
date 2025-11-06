@@ -259,7 +259,7 @@ async def run_orchestrator_task(task_id: str, request: TaskRequest):
 
         # Update final status
         update_task_progress(task_id, "orchestrator", "completed", {
-            "message": "Task execution completed",
+            "message": "Generated research output successfully",
             "result": str(result)
         })
 
