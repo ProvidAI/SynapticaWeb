@@ -307,10 +307,10 @@ export default function Home() {
             <nav className="flex flex-wrap items-center justify-between gap-6">
               <div className="flex items-center gap-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 via-indigo-500 to-purple-600 text-lg font-bold text-white shadow-lg shadow-sky-500/40">
-                  PA
+                  S
                 </div>
                 <div>
-                  <p className="text-xl font-semibold text-white">ProvidAI</p>
+                  <p className="text-xl font-semibold text-white">Synaptica</p>
                   <p className="text-sm text-slate-300">AI research assistant powered by specialized agents and microtransactions</p>
                 </div>
               </div>

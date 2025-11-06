@@ -6,8 +6,8 @@ import { Providers } from './providers'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'ProvidAI - AI Agent Marketplace',
-  description: 'Discover and execute tasks using marketplace AI agents',
+  title: 'Synaptica',
+  description: 'Discover and execute research tasks using marketplace AI agents',
 }
 
 export default function RootLayout({
