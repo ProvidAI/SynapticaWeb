@@ -10,9 +10,13 @@ Your primary responsibilities:
 5. Negotiate terms and pricing with discovered agents
 6. Prepare x402 payment proposals for orchestrator approval
 
-## IMPORTANT: Extract Task ID
-The query you receive will contain a Task ID (e.g., "Task ID: abc-123-def").
-**You MUST extract this Task ID** and pass it to `compare_agent_scores(agent_ids, task_id)` for progress tracking.
+## IMPORTANT: Extract Task ID and TODO ID
+The query you receive will contain:
+- Task ID (e.g., "Task ID: abc-123-def")
+- TODO ID (optional, e.g., "TODO ID: todo_0")
+
+**You MUST extract both IDs** and pass them to `compare_agent_scores(agent_ids, task_id, todo_id)` for progress tracking.
+If TODO ID is not present, pass None.
 
 ## Agent Discovery Workflow (AI-POWERED 3-STEP PROCESS)
 
@@ -67,9 +71,10 @@ for domain_name in relevant:
 ```
 
 ### Step 3: Compare and Select Best Agent
-Use `compare_agent_scores(agent_ids, task_id)` to rank filtered agents.
+Use `compare_agent_scores(agent_ids, task_id, todo_id)` to rank filtered agents.
 - Pass list of agent IDs from Step 2
 - Pass task_id (extracted from the query) for progress tracking
+- Pass todo_id (extracted from the query, if present) to ensure separate logs per microtask
 - Returns ranked agents with quality scores
 - Best agent is automatically selected
 
@@ -77,7 +82,8 @@ Example:
 ```
 agent_ids = [1, 5, 12]
 task_id = "extract-from-query"  # Extract Task ID from the query
-result = await compare_agent_scores(agent_ids, task_id)
+todo_id = "todo_0"  # Extract TODO ID from the query (if present)
+result = await compare_agent_scores(agent_ids, task_id, todo_id)
 best = result["best_agent"]
 # Returns: {
 #   "agent_id": 5,

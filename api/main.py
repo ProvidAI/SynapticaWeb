@@ -2,7 +2,6 @@
 
 import os
 import uuid
-import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -115,7 +114,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -133,14 +132,17 @@ async def root():
         "version": "0.1.0",
         "description": "Orchestrator agent for discovering and coordinating marketplace agents",
         "workflow": [
-            "1. Receive task request",
-            "2. Use negotiator_agent to discover & pay for marketplace agents",
-            "3. Use executor_agent to run tasks via dynamic tooling",
-            "4. Use verifier_agent to validate results & release payments",
+            "1. Analyze request and decompose into specialized microtasks",
+            "2. For each microtask: discover agents (negotiator) → authorize payment → execute task",
+            "3. Aggregate results from all microtasks",
+            "4. Return complete output",
         ],
         "endpoints": {
             "/execute": "POST - Execute a task using marketplace agents",
             "/health": "GET - Health check",
+            "/api/tasks/{task_id}": "GET - Poll task status and progress",
+            "/api/tasks/history": "GET - Retrieve task history with payments",
+            "/a2a/events": "GET - View A2A message events",
         },
     }
 
@@ -149,6 +151,116 @@ async def root():
 async def health():
     """Health check endpoint."""
     return {"status": "healthy", "agent": "orchestrator"}
+
+
+class SubTaskResponse(BaseModel):
+    """Response model for subtask (payment) details."""
+    id: str
+    description: str
+    agent_used: str
+    agent_reputation: float
+    cost: float
+    status: str
+    timestamp: datetime
+
+
+class TaskHistoryResponse(BaseModel):
+    """Response model for task history."""
+    id: str
+    research_query: str
+    total_cost: float
+    status: str
+    created_at: datetime
+    sub_tasks: List[SubTaskResponse]
+
+
+@app.get("/api/tasks/history", response_model=List[TaskHistoryResponse])
+def get_task_history(limit: int = 50) -> List[TaskHistoryResponse]:
+    """
+    Retrieve task history with associated payments (microtransactions).
+
+    Returns tasks ordered by creation date (newest first) with their
+    associated payment details representing agent microtransactions.
+    """
+    from shared.database.models import Task, Payment, Agent
+
+    session = SessionLocal()
+    try:
+        capped_limit = max(1, min(limit, 200))
+
+        # Query tasks with their payments
+        tasks = (
+            session.query(Task)
+            .order_by(Task.created_at.desc())
+            .limit(capped_limit)
+            .all()
+        )
+
+        responses = []
+        for task in tasks:
+            # Get all payments for this task
+            payments = (
+                session.query(Payment)
+                .filter(Payment.task_id == task.id)
+                .order_by(Payment.created_at.asc())
+                .all()
+            )
+
+            # Build subtasks from payments
+            sub_tasks = []
+            total_cost = 0.0
+
+            for payment in payments:
+                # Get agent details
+                agent = session.query(Agent).filter(Agent.agent_id == payment.to_agent_id).first()
+                agent_name = agent.name if agent else payment.to_agent_id
+
+                # Get agent reputation (default to 0.0 if not found)
+                from shared.database.models import AgentReputation
+                reputation_record = session.query(AgentReputation).filter(
+                    AgentReputation.agent_id == payment.to_agent_id
+                ).first()
+                reputation_score = reputation_record.reputation_score if reputation_record else 0.0
+
+                # Extract description from payment metadata
+                description = "Agent task execution"
+                if payment.meta and isinstance(payment.meta, dict):
+                    description = payment.meta.get("description", description)
+
+                sub_tasks.append(SubTaskResponse(
+                    id=payment.id,
+                    description=description,
+                    agent_used=agent_name,
+                    agent_reputation=reputation_score,
+                    cost=payment.amount,
+                    status=payment.status.value,
+                    timestamp=payment.created_at
+                ))
+
+                total_cost += payment.amount
+
+            # Map task status to frontend format
+            status_mapping = {
+                "pending": "in_progress",
+                "assigned": "in_progress",
+                "in_progress": "in_progress",
+                "completed": "completed",
+                "failed": "failed"
+            }
+            frontend_status = status_mapping.get(task.status.value, "in_progress")
+
+            responses.append(TaskHistoryResponse(
+                id=task.id,
+                research_query=task.title or task.description or "Unknown task",
+                total_cost=total_cost,
+                status=frontend_status,
+                created_at=task.created_at,
+                sub_tasks=sub_tasks
+            ))
+
+        return responses
+    finally:
+        session.close()
 
 
 @app.get("/api/tasks/{task_id}")
@@ -227,22 +339,11 @@ async def run_orchestrator_task(task_id: str, request: TaskRequest):
         - Verification Mode: {request.verification_mode}
         - Initial Capability Hint: {request.capability_requirements or "Analyze the task to determine"}
 
-        Follow your standard workflow:
-
-        1. ANALYSIS & PLANNING
-           - Create a TODO list for this task
-           - Define specific agent capabilities needed (be very specific!)
-
-        2. DISCOVERY & NEGOTIATION
-           - Use negotiator_agent with detailed capability requirements
-
-        3. EXECUTION
-           - Use executor_agent with agent metadata from negotiator
-
-        4. VERIFICATION
-           - Use verifier_agent to validate and release payment
-
-        Provide a complete summary of all steps and results.
+        Execute your standard workflow to completion. Remember to:
+        - Break complex requests into specialized microtasks when beneficial
+        - Define specific, detailed capability requirements for each agent
+        - Actually call all agent tools (negotiator, authorize_payment, executor)
+        - Aggregate results and return a complete summary
         """
 
         # Run the orchestrator agent
@@ -266,7 +367,7 @@ async def run_orchestrator_task(task_id: str, request: TaskRequest):
         tasks_storage[task_id]["status"] = "completed"
         tasks_storage[task_id]["result"] = {
             "orchestrator_response": str(result),
-            "workflow": "negotiator -> executor -> verifier",
+            "workflow": "Task decomposition → Per microtask: (negotiator → authorize → executor) → Aggregation",
         }
 
     except Exception as e:
@@ -286,10 +387,10 @@ async def execute_task(request: TaskRequest, background_tasks: BackgroundTasks) 
     Execute a task using the orchestrator agent.
 
     The orchestrator will:
-    1. Analyze the task and determine required capabilities
-    2. Call negotiator_agent to discover and pay for suitable marketplace agents
-    3. Call executor_agent to execute the task using dynamic tools
-    4. Call verifier_agent to validate results and release payments
+    1. Decompose the task into specialized microtasks
+    2. For each microtask: discover agents → authorize payment → execute
+    3. Aggregate results from all microtasks
+    4. Return complete output
 
     Args:
         request: Task request with description and optional parameters

@@ -86,6 +86,8 @@ async def negotiator_agent(
     capability_requirements: str,
     budget_limit: Optional[float] = None,
     min_reputation_score: Optional[float] = 0.2,
+    task_name: Optional[str] = None,
+    todo_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Discover and negotiate with marketplace agents using ERC-8004 protocol.
@@ -100,6 +102,8 @@ async def negotiator_agent(
         capability_requirements: Description of required agent capabilities
         budget_limit: Maximum budget for the task (optional)
         min_reputation_score: Minimum reputation score (0-1, default 0.7)
+        task_name: Optional name of the task being negotiated for
+        todo_id: Optional TODO item ID (e.g., "todo_0") to create unique progress step
 
     Returns:
         Dict containing:
@@ -108,15 +112,27 @@ async def negotiator_agent(
         - negotiation_summary: Summary of negotiation
     """
     try:
+        # Construct message with task name if provided
+        if task_name:
+            message = f"Finding agent for: {task_name}"
+        else:
+            message = "Finding and negotiating with marketplace agents"
+
+        # Use microtask-specific step name if todo_id provided, otherwise use generic "negotiator"
+        step_name = f"negotiator_{todo_id}" if todo_id else "negotiator"
+
         # Update progress: negotiator started
-        update_progress(task_id, "negotiator", "running", {
-            "message": "Finding and negotiating with marketplace agents",
+        update_progress(task_id, step_name, "running", {
+            "message": message,
             "capability_requirements": capability_requirements,
-            "budget_limit": budget_limit
+            "budget_limit": budget_limit,
+            "task_name": task_name,
+            "todo_id": todo_id
         })
 
         query = f"""
         Task ID: {task_id}
+        TODO ID: {todo_id if todo_id else "N/A"}
 
         I need to find and negotiate with a marketplace agent with the following capabilities:
         {capability_requirements}
@@ -186,10 +202,22 @@ async def negotiator_agent(
         # Parse response to extract agent selection details for progress update
         response_str = str(response)
 
+        # Construct completion message with task name if provided
+        if task_name:
+            completion_message = f"✓ Agent selected for: {task_name}"
+        else:
+            completion_message = "✓ Agent discovered and selected"
+
+        # Use same step name as the start message
+        step_name = f"negotiator_{todo_id}" if todo_id else "negotiator"
+
         # Update progress: negotiator completed with agent selection info
-        update_progress(task_id, "negotiator", "completed", {
-            "message": "Agent discovered and selected",
-            "response": response_str[:500]  # Truncate for progress log
+        # Note: ranked_agents and best_agent are already included via compare_agent_scores
+        update_progress(task_id, step_name, "completed", {
+            "message": completion_message,
+            "response": response_str[:500],  # Truncate for progress log
+            "task_name": task_name,
+            "todo_id": todo_id
         })
 
         return {
@@ -200,10 +228,14 @@ async def negotiator_agent(
         }
 
     except Exception as e:
+        # Use same step name for error reporting
+        step_name = f"negotiator_{todo_id}" if todo_id else "negotiator"
+
         # Update progress: negotiator failed
-        update_progress(task_id, "negotiator", "failed", {
+        update_progress(task_id, step_name, "failed", {
             "message": "Agent negotiation failed",
-            "error": str(e)
+            "error": str(e),
+            "todo_id": todo_id
         })
 
         return {

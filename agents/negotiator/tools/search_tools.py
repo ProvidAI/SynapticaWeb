@@ -143,7 +143,7 @@ async def resolve_agent_by_domain(domain: str) -> Dict[str, Any]:
 
 
 @tool
-async def compare_agent_scores(agent_ids: List[int], task_id: str = None) -> Dict[str, Any]:
+async def compare_agent_scores(agent_ids: List[int], task_id: str = None, todo_id: str = None) -> Dict[str, Any]:
     """
     Compare reputation and validation scores for multiple agents.
 
@@ -272,9 +272,11 @@ async def compare_agent_scores(agent_ids: List[int], task_id: str = None) -> Dic
         }
 
         # Send progress update with discovered agents if task_id provided
+        # Use the same step name as negotiator_agent (negotiator_{todo_id}) to merge data
         if task_id:
             from shared.task_progress import update_progress
-            update_progress(task_id, "negotiator", "running", {
+            step_name = f"negotiator_{todo_id}" if todo_id else "negotiator"
+            update_progress(task_id, step_name, "running", {
                 "message": f"Discovered and ranked {len(agents_with_scores)} agents",
                 "ranked_agents": agents_with_scores,
                 "best_agent": agents_with_scores[0] if agents_with_scores else None
