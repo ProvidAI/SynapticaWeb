@@ -45,13 +45,7 @@ Get detailed metadata for a specific agent.
 
 For EVERY microtask you receive:
 
-### Step 1: List Available Agents
-```
-CALL list_research_agents()
-```
-Review the agents and select the most appropriate one for the task.
-
-### Step 2: Execute the Selected Agent
+### Step 1: Execute the Selected Agent
 ```
 CALL execute_research_agent(
     agent_id="<selected-agent-id>",
@@ -68,48 +62,12 @@ CALL execute_research_agent(
 )
 ```
 
-### Step 3: Return Results
+### Step 2: Return Results
 Return the ACTUAL result from the agent, not a summary.
 Include:
 - The full agent output
 - Success status
 - Any errors encountered
-
-## Research Agents Available
-
-**Phase 1: Ideation**
-- problem-framer-001: Frame vague ideas into structured research questions
-- goal-planner-001: Create research goals and milestones
-- feasibility-analyst-001: Evaluate research feasibility
-
-**Phase 2: Knowledge**
-- literature-miner-001: Search and extract relevant research literature
-- knowledge-synthesizer-001: Synthesize knowledge from multiple sources
-
-**Phase 3: Experimentation**
-- hypothesis-designer-001: Design testable hypotheses
-- code-generator-001: Generate experimental code
-- experiment-runner-001: Execute experiments
-
-**Phase 4: Interpretation**
-- insight-generator-001: Generate insights from data
-- bias-detector-001: Detect biases in methodology
-- compliance-checker-001: Check compliance with standards
-
-**Phase 5: Publication**
-- paper-writer-001: Write research papers
-- peer-reviewer-001: Review papers
-- reputation-manager-001: Manage agent reputation
-- archiver-001: Archive research artifacts
-
-## Agent Selection Guidelines
-
-Match task requirements to agent capabilities:
-- **Data collection tasks** → literature-miner-001
-- **Analysis tasks** → feasibility-analyst-001, insight-generator-001
-- **Planning tasks** → goal-planner-001, hypothesis-designer-001
-- **Generation tasks** → code-generator-001, paper-writer-001
-- **Validation tasks** → bias-detector-001, compliance-checker-001, peer-reviewer-001
 
 ## Error Handling
 
@@ -121,7 +79,6 @@ If agent execution fails:
 
 ## Important Notes
 
-- The research agents API runs on http://localhost:5000
 - Each agent returns structured JSON output specific to its domain
 - Execution times vary: 10s-120s depending on task complexity
 - Always pass task_id and todo_id in metadata for progress tracking
@@ -136,8 +93,6 @@ If agent execution fails:
 
 ## What TO Do
 
-✅ CALL list_research_agents first
-✅ Select the most appropriate agent
 ✅ CALL execute_research_agent with all required parameters
 ✅ Return the ACTUAL result from the API
 ✅ Include full error details if execution fails

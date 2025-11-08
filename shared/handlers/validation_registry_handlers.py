@@ -13,12 +13,9 @@ except ModuleNotFoundError:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 # -------- CONFIG --------
-RPC_URL = os.getenv("VALIDATION_REGISTRY_RPC_URL", "https://testnet.hashio.io/api")
-PRIVATE_KEY = os.getenv("VALIDATION_REGISTRY_PRIVATE_KEY", "")
-VALIDATION_CONTRACT_ADDRESS = os.getenv(
-    "VALIDATION_CONTRACT_ADDRESS",
-    "0x2D266b170A049b81997FE3b61fa47D5B08b35D97",
-)
+RPC_URL = os.getenv("HEDERA_RPC_URL", "")
+PRIVATE_KEY = os.getenv("HEDERA_PRIVATE_KEY", "")
+VALIDATION_CONTRACT_ADDRESS = os.getenv("VALIDATION_CONTRACT_ADDRESS", "")
 
 validation_registry = None
 wallet_address = ""

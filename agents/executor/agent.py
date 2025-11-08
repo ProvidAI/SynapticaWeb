@@ -40,7 +40,7 @@ def create_executor_agent() -> Agent:
 
     agent = create_openai_agent(
         api_key=api_key,
-        model=model,
+        model=model, 
         system_prompt=EXECUTOR_SYSTEM_PROMPT,
         tools=tools,
     )

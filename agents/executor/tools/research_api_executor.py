@@ -4,6 +4,8 @@ import logging
 import os
 from typing import Any, Dict, Optional
 import httpx
+import json
+
 from strands import tool
 
 logger = logging.getLogger(__name__)
@@ -67,7 +69,7 @@ async def list_research_agents() -> Dict[str, Any]:
 
 @tool
 async def execute_research_agent(
-    agent_id: str,
+    agent_domain: str,
     task_description: str,
     context: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None,
@@ -79,7 +81,7 @@ async def execute_research_agent(
     running on port 5000. No simulation - actual agent execution.
 
     Args:
-        agent_id: The agent ID (e.g., "feasibility-analyst-001", "literature-miner-001")
+        agent_domain: The agent domain (e.g., "feasibility-analyst-001", "literature-miner-001")
         task_description: Description of the task to execute
         context: Optional context dict with additional parameters (budget, timeline, etc.)
         metadata: Optional metadata (task_id, user_id, etc.)
@@ -103,8 +105,20 @@ async def execute_research_agent(
         )
     """
     try:
-        logger.info(f"[execute_research_agent] Executing agent: {agent_id}")
+        logger.info(f"[execute_research_agent] Executing agent: {agent_domain}")
         logger.info(f"[execute_research_agent] Task: {task_description[:100]}...")
+
+        if isinstance(context, str):
+            try:
+                context = json.loads(context)
+            except json.JSONDecodeError:
+                raise ValueError(f"context string is not valid JSON: {context}")
+
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except json.JSONDecodeError:
+                raise ValueError(f"metadata string is not valid JSON: {metadata}")
 
         # Construct request payload
         payload = {
@@ -112,8 +126,9 @@ async def execute_research_agent(
             "context": context or {},
             "metadata": metadata or {}
         }
+        logger.info(f"[execute_research_agent] Payload: {payload}")
 
-        endpoint = f"{RESEARCH_API_BASE_URL}/agents/{agent_id}"
+        endpoint = f"{RESEARCH_API_BASE_URL}/agents/{agent_domain}"
         logger.info(f"[execute_research_agent] Calling {endpoint}")
 
         async with httpx.AsyncClient(timeout=120.0) as client:  # 2 minute timeout for agent execution
@@ -130,25 +145,25 @@ async def execute_research_agent(
 
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
-            logger.error(f"[execute_research_agent] Agent not found: {agent_id}")
+            logger.error(f"[execute_research_agent] Agent not found: {agent_domain}")
             return {
                 "success": False,
-                "agent_id": agent_id,
-                "error": f"Agent '{agent_id}' not found. Use list_research_agents to see available agents.",
+                "agent_id": agent_domain,
+                "error": f"Agent '{agent_domain}' not found. Use list_research_agents to see available agents.",
             }
         else:
             logger.error(f"[execute_research_agent] HTTP {e.response.status_code}: {e}")
             return {
                 "success": False,
-                "agent_id": agent_id,
+                "agent_id": agent_domain,
                 "error": f"HTTP error {e.response.status_code}: {str(e)}",
             }
 
     except httpx.TimeoutException:
-        logger.error(f"[execute_research_agent] Request timed out for agent: {agent_id}")
+        logger.error(f"[execute_research_agent] Request timed out for agent: {agent_domain}")
         return {
             "success": False,
-            "agent_id": agent_id,
+            "agent_id": agent_domain,
             "error": "Agent execution timed out (120s limit). The task may be too complex.",
         }
 
@@ -156,7 +171,7 @@ async def execute_research_agent(
         logger.error(f"[execute_research_agent] HTTP error: {e}")
         return {
             "success": False,
-            "agent_id": agent_id,
+            "agent_id": agent_domain,
             "error": f"Failed to connect to research agents API: {str(e)}",
             "suggestion": "Make sure the research agents server is running on port 5000"
         }
@@ -165,7 +180,7 @@ async def execute_research_agent(
         logger.error(f"[execute_research_agent] Unexpected error: {e}", exc_info=True)
         return {
             "success": False,
-            "agent_id": agent_id,
+            "agent_id": agent_domain,
             "error": f"Unexpected error: {str(e)}",
         }
 

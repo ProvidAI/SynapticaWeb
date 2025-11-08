@@ -24,22 +24,7 @@ export function TaskResults() {
   const getOrchestratorResponse = (): string | null => {
     if (!result.data) return null
 
-    // Try to find the synthesized response from orchestrator
-    if (typeof result.data.orchestrator_response === 'string') {
-      return result.data.orchestrator_response
-    }
-
-    // Fallback: look for response in nested structure
-    if (result.data.response && typeof result.data.response === 'string') {
-      return result.data.response
-    }
-
-    // If orchestrator returned markdown in the data object directly
-    if (result.data.final_response && typeof result.data.final_response === 'string') {
-      return result.data.final_response
-    }
-
-    return null
+    return result.data.orchestrator_response
   }
 
   const orchestratorResponse = getOrchestratorResponse()

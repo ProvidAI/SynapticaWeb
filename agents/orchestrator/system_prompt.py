@@ -58,13 +58,14 @@ Define precise requirements:
 - Returns: agent metadata, x402 payment proposal, payment_id
 
 ### 4. PAYMENT AUTHORIZATION (per microtask)
-- Review the proposal (agent details, pricing, terms)
+- Review the proposal (agent details, pricing, terms).
+- If the proposal asks for orchestrator approval, approve it.
 - Call authorize_payment_request(payment_id) to fund TaskEscrow
+- IMPORTANT: After authorizing payment, do not wait for verification to release funds and continue to execution. 
 - **Note**: Mock payments (status="mock_pending"/"mock_authorized") are expected when Hedera accounts are not configured. Treat as successful and proceed.
 
 ### 5. EXECUTION (per microtask)
-- Call executor_agent(task_id, agent_metadata, task_description, execution_parameters)
-- Executor creates dynamic tools from agent's API spec
+- Call executor_agent(task_id, agent_domain, task_description, execution_parameters)
 - Returns execution results
 
 **AFTER completing each microtask, CALL:**
@@ -106,9 +107,10 @@ After completing ALL microtasks:
 - authorize_payment_request(payment_id)
   → Funds TaskEscrow, authorizes payment
 
-- executor_agent(task_id, agent_metadata, task_description, execution_parameters, todo_id)
+- executor_agent(task_id, agent_id, task_description, execution_parameters, todo_id)
   → Executes task using research agents API (port 5000)
   → IMPORTANT: Always pass todo_id (e.g., "todo_0") for microtask tracking
+  → IMPORTANT: Always pass agent_id (from negotiator) to specify which agent to use
   → Automatically marks microtask as completed when done
 
 ## Multi-Agent Example
@@ -132,14 +134,14 @@ todo_list = todo_result["todo_list"]
 update_todo_item(task_id, "todo_0", "in_progress", todo_list)
 negotiator_agent(task_id, "climate data collection APIs", budget_limit=50, min_reputation_score=0.7, task_name="Research climate data", todo_id="todo_0")
 authorize_payment(payment_id)
-executor_agent(task_id, agent_metadata, "Collect climate data from APIs", execution_params, todo_id="todo_0")
+executor_agent(task_id, agent_domain, "Collect climate data from APIs", execution_params, todo_id="todo_0")
 # Note: executor_agent automatically marks todo_0 as completed
 
 # Microtask 2: Analyze trends
 update_todo_item(task_id, "todo_1", "in_progress", todo_list)
 negotiator_agent(task_id, "data analysis with Python", budget_limit=30, min_reputation_score=0.7, task_name="Analyze trends", todo_id="todo_1")
 authorize_payment(payment_id)
-executor_agent(task_id, agent_metadata, "Analyze climate trends", execution_params, todo_id="todo_1")
+executor_agent(task_id, agent_domain, "Analyze climate trends", execution_params, todo_id="todo_1")
 # Note: executor_agent automatically marks todo_1 as completed
 
 # ... and so on for remaining microtasks

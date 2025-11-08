@@ -3,10 +3,9 @@
 import os
 from typing import Dict, Any, List, Optional
 from abc import ABC, abstractmethod
-from shared.openai_agent import Agent, create_openai_agent
+from shared.openai_agent import Agent
 from shared.database import SessionLocal, Agent as AgentModel, AgentReputation
 from datetime import datetime
-import json
 
 
 class BaseResearchAgent(ABC):
@@ -146,15 +145,12 @@ class BaseResearchAgent(ABC):
         Returns:
             Agent response as dictionary
         """
-        if not self.agent:
-            self.create_agent()
+        agent = self.agent
+        if self.agent is None:
+            agent = self.create_agent()
 
         try:
-            # Run agent with JSON mode enabled by default for research agents
-            json_mode = kwargs.get('json_mode', True)
-            max_tokens = kwargs.get('max_tokens', 4096)
-
-            result = await self.agent._agent.run(request, json_mode=json_mode, max_tokens=max_tokens)
+            result = await agent.run(request)
 
             # Update success metrics
             self._update_reputation(success=True, quality_score=0.8)

@@ -265,7 +265,7 @@ async def authorize_payment_request(payment_id: str) -> Dict[str, Any]:
 @tool
 async def executor_agent(
     task_id: str,
-    agent_metadata: Dict[str, Any],
+    agent_domain: str,
     task_description: str,
     execution_parameters: Optional[Dict[str, Any]] = None,
     todo_id: Optional[str] = None,
@@ -275,13 +275,12 @@ async def executor_agent(
 
     This agent:
     - Calls research agents via HTTP API (no simulation)
-    - Selects the best agent for the microtask
     - Returns real agent output
     - Marks microtask as completed when done
 
     Args:
         task_id: Unique identifier for the task
-        agent_metadata: Metadata from negotiator (currently ignored in favor of research API)
+        agent_domain: Domain of agent from negotiator
         task_description: Description of what to execute
         execution_parameters: Optional parameters for execution
         todo_id: Optional TODO item ID (e.g., "todo_0") for microtask tracking
@@ -310,16 +309,16 @@ async def executor_agent(
         query = f"""
         Task ID: {task_id}{todo_str}
 
+        Agent Domain: {agent_domain}
+
         Task Description:
         {task_description}
         {params_str}
 
         You MUST follow this workflow EXACTLY:
 
-        1. CALL list_research_agents to view all available research agents
-        2. SELECT the BEST agent for this specific task based on capabilities
-        3. CALL execute_research_agent with:
-            - agent_id (the selected agent's ID)
+        1. CALL execute_research_agent with:
+            - agent_domain (the selected agent's domain)
             - task_description (the task to perform)
             - context (include any execution_parameters)
             - metadata (include task_id and todo_id for tracking)
@@ -328,11 +327,9 @@ async def executor_agent(
         - You MUST actually CALL the tools - do NOT simulate or describe
         - Return the ACTUAL result from execute_research_agent
         - Do NOT summarize or paraphrase the agent's output
-        - The research agents API is running on http://localhost:5000
 
         Return:
         - The full agent result (NOT a summary)
-        - Which agent was selected
         - Success status
         """
 

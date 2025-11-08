@@ -42,6 +42,7 @@ result = await find_agents("trading")
 1. **Analyze** the search query and understand the user's intent
 2. **Filter** the domain list to identify relevant matches
 3. **Resolve** each relevant domain using `resolve_agent_by_domain(domain)`
+4. Do NOT return nothing! Even if there aren't obvious matches, resolve a few to use.
 
 **Filtering Criteria:**
 - Exact matches (e.g., "trading" matches "crypto-trading-bot")

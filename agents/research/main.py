@@ -23,18 +23,18 @@ from agents.research.phase1_ideation.feasibility_analyst.agent import feasibilit
 from agents.research.phase2_knowledge.literature_miner.agent import literature_miner_agent
 from agents.research.phase2_knowledge.knowledge_synthesizer.agent import knowledge_synthesizer_agent
 
-from agents.research.phase3_experimentation.hypothesis_designer.agent import hypothesis_designer_agent
-from agents.research.phase3_experimentation.code_generator.agent import code_generator_agent
-from agents.research.phase3_experimentation.experiment_runner.agent import experiment_runner_agent
+from agents.research.phase3_experimentation.hypothesis_designer.agent import hypothesis_designer_001_agent
+from agents.research.phase3_experimentation.code_generator.agent import code_generator_001_agent
+from agents.research.phase3_experimentation.experiment_runner.agent import experiment_runner_001_agent
 
-from agents.research.phase4_interpretation.insight_generator.agent import insight_generator_agent
-from agents.research.phase4_interpretation.bias_detector.agent import bias_detector_agent
-from agents.research.phase4_interpretation.compliance_checker.agent import compliance_checker_agent
+from agents.research.phase4_interpretation.insight_generator.agent import insight_generator_001_agent
+from agents.research.phase4_interpretation.bias_detector.agent import bias_detector_001_agent
+from agents.research.phase4_interpretation.compliance_checker.agent import compliance_checker_001_agent
 
-from agents.research.phase5_publication.paper_writer.agent import paper_writer_agent
-from agents.research.phase5_publication.peer_reviewer.agent import peer_reviewer_agent
-from agents.research.phase5_publication.reputation_manager.agent import reputation_manager_agent
-from agents.research.phase5_publication.archiver.agent import archiver_agent
+from agents.research.phase5_publication.paper_writer.agent import paper_writer_001_agent
+from agents.research.phase5_publication.peer_reviewer.agent import peer_reviewer_001_agent
+from agents.research.phase5_publication.reputation_manager.agent import reputation_manager_001_agent
+from agents.research.phase5_publication.archiver.agent import archiver_001_agent
 
 # Set up logging
 logging.basicConfig(
@@ -71,20 +71,20 @@ AGENT_REGISTRY = {
     "knowledge-synthesizer-001": knowledge_synthesizer_agent,
 
     # Phase 3: Experimentation
-    "hypothesis-designer-001": hypothesis_designer_agent,
-    "code-generator-001": code_generator_agent,
-    "experiment-runner-001": experiment_runner_agent,
+    "hypothesis-designer-001": hypothesis_designer_001_agent,
+    "code-generator-001": code_generator_001_agent,
+    "experiment-runner-001": experiment_runner_001_agent,
 
     # Phase 4: Interpretation
-    "insight-generator-001": insight_generator_agent,
-    "bias-detector-001": bias_detector_agent,
-    "compliance-checker-001": compliance_checker_agent,
+    "insight-generator-001": insight_generator_001_agent,
+    "bias-detector-001": bias_detector_001_agent,
+    "compliance-checker-001": compliance_checker_001_agent,
 
     # Phase 5: Publication
-    "paper-writer-001": paper_writer_agent,
-    "peer-reviewer-001": peer_reviewer_agent,
-    "reputation-manager-001": reputation_manager_agent,
-    "archiver-001": archiver_agent,
+    "paper-writer-001": paper_writer_001_agent,
+    "peer-reviewer-001": peer_reviewer_001_agent,
+    "reputation-manager-001": reputation_manager_001_agent,
+    "archiver-001": archiver_001_agent,
 }
 
 
