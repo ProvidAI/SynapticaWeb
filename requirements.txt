@@ -23,6 +23,7 @@ pydantic-settings>=2.0.0
 httpx>=0.27.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
+bs4
 
 # Ethereum/Web3 (for ERC-8004)
 web3>=6.0.0

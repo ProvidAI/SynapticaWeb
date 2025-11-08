@@ -8,6 +8,7 @@ from .system_prompt import LITERATURE_MINER_SYSTEM_PROMPT
 from .tools import (
     search_arxiv,
     search_semantic_scholar,
+    search_web_for_research,
     calculate_relevance_score,
     deduplicate_papers,
     rank_papers_by_relevance,
@@ -58,6 +59,7 @@ class LiteratureMinerAgent(BaseResearchAgent):
         return [
             search_arxiv,
             search_semantic_scholar,
+            search_web_for_research,
             calculate_relevance_score,
             deduplicate_papers,
             rank_papers_by_relevance,
