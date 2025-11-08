@@ -123,29 +123,62 @@ async def update_todo_item(task_id: str, todo_id: str, status: str, todo_list: O
     logger = logging.getLogger(__name__)
 
     db = SessionLocal()
-    try:    
-        for item in todo_list:
-            if item.get("id") == todo_id:
-                todo_title = item.get("title", "Unknown task")
-                todo_description = item.get("description", "")
-                todo_assigned_to = item.get("assigned_to", None)
-                found = True
-                logger.info(f"[update_todo_item] Found TODO in provided list: id={todo_id}, title={todo_title}")
-                break
+    try:
+        # Initialize defaults
+        found = False
+        todo_title = "Unknown task"
+        todo_description = ""
+        todo_assigned_to = None
+
+        # First try to get from database
+        task = db.query(Task).filter(Task.id == task_id).first()
+        if task and task.meta and "todo_list" in task.meta:
+            for item in task.meta["todo_list"]:
+                if isinstance(item, dict) and item.get("id") == todo_id:
+                    todo_title = item.get("title", "Unknown task")
+                    todo_description = item.get("description", "")
+                    todo_assigned_to = item.get("assigned_to", None)
+                    found = True
+                    logger.info(f"[update_todo_item] Found TODO in database: id={todo_id}, title={todo_title}")
+
+                    # Update status in database
+                    item["status"] = status
+                    db.commit()
+                    break
+
+        # If not found in database and todo_list provided, check there
+        if not found and todo_list is not None:
+            logger.info(f"[update_todo_item] Checking provided todo_list: type={type(todo_list)}, length={len(todo_list) if isinstance(todo_list, list) else 'N/A'}")
+
+            # Handle case where todo_list might be passed as JSON string
+            if isinstance(todo_list, str):
+                import json
+                try:
+                    todo_list = json.loads(todo_list)
+                    logger.info("[update_todo_item] Parsed todo_list from JSON string")
+                except json.JSONDecodeError:
+                    logger.error(f"[update_todo_item] Failed to parse todo_list JSON string: {todo_list[:100]}")
+                    todo_list = None
+
+            if isinstance(todo_list, list):
+                for item in todo_list:
+                    if isinstance(item, dict) and item.get("id") == todo_id:
+                        todo_title = item.get("title", "Unknown task")
+                        todo_description = item.get("description", "")
+                        todo_assigned_to = item.get("assigned_to", None)
+                        found = True
+                        logger.info(f"[update_todo_item] Found TODO in provided list: id={todo_id}, title={todo_title}")
+                        break
+                    elif not isinstance(item, dict):
+                        logger.warning(f"[update_todo_item] Invalid todo_list item type: {type(item)}, value: {item}")
 
         if not found:
             logger.warning(f"[update_todo_item] Could not find TODO {todo_id} in database or provided list")
 
         # Emit progress update to frontend based on status
-        if status == "in_progress":
-            update_progress(task_id, f"microtask_{todo_id}", "started", {
-                "message": f"Starting: {todo_title}",
-                "todo_id": todo_id,
-                "assigned_to": todo_assigned_to,
-                "description": todo_description,
-                "task_name": todo_title  # Include task name for other steps to reference
-            })
-        elif status == "completed":
+        # Note: We don't emit "in_progress" updates here because negotiator already shows "Agent selected for: {task}"
+        # We only emit completion/failure updates
+        if status == "completed":
             # Emit completion for this specific microtask
             update_progress(task_id, f"microtask_{todo_id}", "completed", {
                 "message": f"✓ Completed: {todo_title}",

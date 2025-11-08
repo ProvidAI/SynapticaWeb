@@ -269,6 +269,7 @@ async def executor_agent(
     task_description: str,
     execution_parameters: Optional[Dict[str, Any]] = None,
     todo_id: Optional[str] = None,
+    todo_list: Optional[list] = None,
 ) -> Dict[str, Any]:
     """
     Execute tasks using research agents from the FastAPI server (port 5000).
@@ -284,6 +285,7 @@ async def executor_agent(
         task_description: Description of what to execute
         execution_parameters: Optional parameters for execution
         todo_id: Optional TODO item ID (e.g., "todo_0") for microtask tracking
+        todo_list: Optional TODO list for updating item status
 
     Returns:
         Dict containing:
@@ -344,7 +346,7 @@ async def executor_agent(
                 # Mark microtask as completed
                 if todo_id:
                     from agents.orchestrator.tools.todo_tools import update_todo_item
-                    await update_todo_item(task_id, todo_id, "completed")
+                    await update_todo_item(task_id, todo_id, "completed", todo_list)
 
                 return {
                     "success": True,
@@ -391,7 +393,7 @@ async def executor_agent(
         # Mark microtask as completed
         if todo_id:
             from agents.orchestrator.tools.todo_tools import update_todo_item
-            await update_todo_item(task_id, todo_id, "completed")
+            await update_todo_item(task_id, todo_id, "completed", todo_list)
 
         return {
             "success": True,
@@ -414,6 +416,144 @@ async def executor_agent(
             "success": False,
             "task_id": task_id,
             "error": str(e),
+        }
+
+@tool
+async def execute_microtask(
+    task_id: str,
+    todo_id: str,
+    task_name: str,
+    task_description: str,
+    capability_requirements: str,
+    budget_limit: Optional[float] = None,
+    min_reputation_score: Optional[float] = 0.2,
+    execution_parameters: Optional[Dict[str, Any]] = None,
+    todo_list: Optional[list] = None,
+) -> Dict[str, Any]:
+    """
+    Execute a complete microtask: negotiation → authorization → execution.
+
+    This is a high-level tool that handles the entire workflow for a single microtask:
+    1. Mark TODO as in_progress
+    2. Discover and negotiate with agent via negotiator_agent
+    3. Authorize payment
+    4. Execute task via executor_agent
+    5. Mark TODO as completed
+
+    Use this instead of calling negotiator/authorize/executor separately.
+
+    Args:
+        task_id: Task ID
+        todo_id: TODO item ID (e.g., "todo_0")
+        task_name: Name of the microtask
+        task_description: Detailed description of what to do
+        capability_requirements: Required agent capabilities
+        budget_limit: Maximum budget (optional)
+        min_reputation_score: Minimum reputation (default 0.2)
+        execution_parameters: Additional parameters for execution
+        todo_list: TODO list for status updates
+
+    Returns:
+        Dict with:
+        - success: bool
+        - result: Execution result from agent
+        - agent_used: Which agent was selected
+        - todo_status: Final status of the TODO item
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        logger.info(f"[execute_microtask] Starting microtask {todo_id}: {task_name}")
+
+        # Step 1: Mark TODO as in_progress
+        from agents.orchestrator.tools.todo_tools import update_todo_item
+        await update_todo_item(task_id, todo_id, "in_progress", todo_list)
+        logger.info(f"[execute_microtask] Marked {todo_id} as in_progress")
+
+        # Step 2: Discover and negotiate with agent
+        logger.info(f"[execute_microtask] Calling negotiator for {todo_id}")
+        negotiator_result = await negotiator_agent(
+            task_id=task_id,
+            capability_requirements=capability_requirements,
+            budget_limit=budget_limit,
+            min_reputation_score=min_reputation_score,
+            task_name=task_name,
+            todo_id=todo_id,
+        )
+
+        if not negotiator_result.get("success"):
+            logger.error(f"[execute_microtask] Negotiation failed for {todo_id}")
+            await update_todo_item(task_id, todo_id, "failed", todo_list)
+            return {
+                "success": False,
+                "error": "Agent negotiation failed",
+                "todo_id": todo_id,
+                "negotiator_result": negotiator_result,
+            }
+
+        # Parse negotiator response to extract payment_id and agent_domain
+        response_text = negotiator_result.get("response", "")
+
+        # Extract payment_id (looking for patterns like "payment_id": "..." or "Payment ID: ...")
+        import re
+        payment_id_match = re.search(r'[Pp]ayment[_ ][Ii][Dd]["\s:]+([a-f0-9-]+)', response_text)
+        payment_id = payment_id_match.group(1) if payment_id_match else None
+
+        # Extract agent_domain (looking for "domain": "..." or "Agent ID: ...")
+        agent_domain_match = re.search(r'[Aa]gent[_ ][Ii][Dd]["\s:]+(\d+)', response_text)
+        if not agent_domain_match:
+            agent_domain_match = re.search(r'[Dd]omain["\s:]+([a-zA-Z0-9-]+)', response_text)
+        agent_domain = agent_domain_match.group(1) if agent_domain_match else None
+
+        logger.info(f"[execute_microtask] Extracted payment_id={payment_id}, agent_domain={agent_domain}")
+
+        # Step 3: Authorize payment
+        if payment_id:
+            logger.info(f"[execute_microtask] Authorizing payment {payment_id}")
+            auth_result = await authorize_payment_request(payment_id)
+            if not auth_result.get("success"):
+                logger.warning(f"[execute_microtask] Payment authorization failed, but continuing: {auth_result}")
+        else:
+            logger.warning("[execute_microtask] No payment_id found in negotiator response, skipping authorization")
+
+        # Step 4: Execute task
+        logger.info(f"[execute_microtask] Calling executor for {todo_id}")
+        executor_result = await executor_agent(
+            task_id=task_id,
+            agent_domain=agent_domain or "unknown",
+            task_description=task_description,
+            execution_parameters=execution_parameters,
+            todo_id=todo_id,
+            todo_list=todo_list,
+        )
+
+        # executor_agent already marks TODO as completed
+        logger.info(f"[execute_microtask] Completed microtask {todo_id}")
+
+        return {
+            "success": True,
+            "task_id": task_id,
+            "todo_id": todo_id,
+            "result": executor_result.get("response", ""),
+            "agent_used": agent_domain or "unknown",
+            "todo_status": "completed",
+            "message": f"✓ Microtask '{task_name}' completed successfully"
+        }
+
+    except Exception as e:
+        logger.error(f"[execute_microtask] Failed for {todo_id}: {e}", exc_info=True)
+
+        # Mark TODO as failed
+        from agents.orchestrator.tools.todo_tools import update_todo_item
+        await update_todo_item(task_id, todo_id, "failed", todo_list)
+
+        return {
+            "success": False,
+            "task_id": task_id,
+            "todo_id": todo_id,
+            "error": str(e),
+            "todo_status": "failed",
         }
 
 @tool

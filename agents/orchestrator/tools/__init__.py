@@ -2,6 +2,7 @@
 
 from .agent_tools import (
     authorize_payment_request,
+    execute_microtask,
     executor_agent,
     negotiator_agent,
     verifier_agent,
@@ -17,6 +18,7 @@ __all__ = [
     "create_todo_list",
     "update_todo_item",
     # Orchestrator agent tools
+    "execute_microtask",
     "negotiator_agent",
     "authorize_payment_request",
     "executor_agent",
