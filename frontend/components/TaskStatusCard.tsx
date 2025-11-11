@@ -167,6 +167,71 @@ export function TaskStatusCard() {
                 const isFailed = log.status === 'failed' || log.status === 'error';
                 const isRunning = log.status === 'running' || log.status === 'started';
 
+                // Special aesthetic block for web search phase
+                if (log.step === 'web_search') {
+                  return (
+                    <div key={`web-search-${index}`} className="space-y-2">
+                      <div
+                        className={cn(
+                          'relative overflow-hidden rounded-lg border p-4',
+                          isCompleted && 'bg-gradient-to-br from-emerald-50 to-white border-emerald-200',
+                          isFailed && 'bg-gradient-to-br from-red-50 to-white border-red-200',
+                          isRunning && 'bg-gradient-to-br from-sky-50 to-white border-sky-200',
+                          !isCompleted && !isFailed && !isRunning && 'bg-slate-50 border-slate-200'
+                        )}
+                      >
+                        {isRunning && (
+                          <div className="absolute inset-0 -translate-x-1/2 animate-[shimmer_2s_infinite] bg-[linear-gradient(110deg,rgba(255,255,255,0)_0%,rgba(255,255,255,0.7)_40%,rgba(255,255,255,0)_80%)]" />
+                        )}
+                        <div className="flex items-start gap-3 relative">
+                          <div className={cn(
+                            "flex h-8 w-8 items-center justify-center rounded-full",
+                            isCompleted ? "bg-emerald-100" : isFailed ? "bg-red-100" : "bg-sky-100"
+                          )}>
+                            {isCompleted ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            ) : isFailed ? (
+                              <XCircle className="h-4 w-4 text-red-600" />
+                            ) : (
+                              <Loader2 className="h-4 w-4 text-sky-600 animate-spin" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={cn(
+                                "font-semibold text-xs",
+                                isCompleted && 'text-emerald-700',
+                                isFailed && 'text-red-700',
+                                isRunning && 'text-sky-700'
+                              )}>
+                                [web_search]
+                              </span>
+                              <span className="text-xs text-slate-500">
+                                {new Date(log.timestamp).toLocaleTimeString()}
+                              </span>
+                            </div>
+                            <p className={cn(
+                              "mt-1 text-sm",
+                              isCompleted && 'text-emerald-800',
+                              isFailed && 'text-red-800',
+                              isRunning && 'text-sky-800',
+                            )}>
+                              {log.data?.message || (isRunning ? 'Searching via Tavily + academic sources...' : 'Web search results retrieved')}
+                            </p>
+                            {log.data?.response_preview && isCompleted && (
+                              <div className="mt-2 rounded border border-slate-200 bg-white p-2">
+                                <p className="text-[11px] text-slate-600 line-clamp-4">
+                                  {log.data.response_preview}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+
                 return (
                   <div key={index} className="space-y-2">
                     <div

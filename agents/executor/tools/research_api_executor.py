@@ -8,6 +8,8 @@ from typing import Any, Dict, Optional
 import httpx
 from strands import tool
 
+from shared.task_progress import update_progress
+
 logger = logging.getLogger(__name__)
 
 # Research agents API base URL
@@ -131,6 +133,18 @@ async def execute_research_agent(
         endpoint = f"{RESEARCH_API_BASE_URL}/agents/{agent_domain}"
         logger.info(f"[execute_research_agent] Calling {endpoint}")
 
+        # Emit web_search progress if this is a literature/web search agent and we have a task_id
+        try:
+            task_id = (metadata or {}).get("task_id")
+            if task_id and any(k in (agent_domain or "") for k in ("literature", "miner", "knowledge", "paper", "search")):
+                update_progress(task_id, "web_search", "running", {
+                    "message": "Searching the web for relevant sources",
+                    "agent_domain": agent_domain
+                })
+        except Exception:
+            # Non-fatal; continue execution
+            pass
+
         async with httpx.AsyncClient(timeout=120.0) as client:  # 2 minute timeout for agent execution
             response = await client.post(endpoint, json=payload)
             response.raise_for_status()
@@ -140,6 +154,17 @@ async def execute_research_agent(
 
             if not data.get("success"):
                 logger.error(f"[execute_research_agent] Agent returned error: {data.get('error')}")
+
+            # Close web_search phase if it was opened
+            try:
+                task_id = (metadata or {}).get("task_id")
+                if task_id and any(k in (agent_domain or "") for k in ("literature", "miner", "knowledge", "paper", "search")):
+                    update_progress(task_id, "web_search", "completed", {
+                        "message": "✓ Web search results retrieved",
+                        "agent_domain": agent_domain
+                    })
+            except Exception:
+                pass
 
             return data
 
