@@ -1,17 +1,17 @@
-"""Research API executor - calls research agents via FastAPI server on port 5000."""
+"""Research API executor - calls research agents via FastAPI server on port 5001."""
 
+import json
 import logging
 import os
 from typing import Any, Dict, Optional
-import httpx
-import json
 
+import httpx
 from strands import tool
 
 logger = logging.getLogger(__name__)
 
 # Research agents API base URL
-RESEARCH_API_BASE_URL = os.getenv("RESEARCH_API_URL", "http://localhost:5000")
+RESEARCH_API_BASE_URL = os.getenv("RESEARCH_API_URL")
 
 
 @tool
@@ -57,7 +57,7 @@ async def list_research_agents() -> Dict[str, Any]:
         return {
             "success": False,
             "error": f"Failed to connect to research agents API: {str(e)}",
-            "suggestion": "Make sure the research agents server is running on port 5000"
+            "suggestion": "Make sure the research agents server is running on port 5001"
         }
     except Exception as e:
         logger.error(f"[list_research_agents] Error: {e}", exc_info=True)
@@ -78,7 +78,7 @@ async def execute_research_agent(
     Execute a research agent via the FastAPI server.
 
     This function makes a real HTTP POST request to the research agents API
-    running on port 5000. No simulation - actual agent execution.
+    running on port 5001. No simulation - actual agent execution.
 
     Args:
         agent_domain: The agent domain (e.g., "feasibility-analyst-001", "literature-miner-001")
@@ -173,7 +173,7 @@ async def execute_research_agent(
             "success": False,
             "agent_id": agent_domain,
             "error": f"Failed to connect to research agents API: {str(e)}",
-            "suggestion": "Make sure the research agents server is running on port 5000"
+            "suggestion": "Make sure the research agents server is running on port 5001"
         }
 
     except Exception as e:

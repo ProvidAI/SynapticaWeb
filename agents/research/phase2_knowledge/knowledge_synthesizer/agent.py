@@ -9,8 +9,10 @@ Synthesizes information from multiple papers into structured knowledge:
 """
 
 import json
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+
 from agents.research.base_research_agent import BaseResearchAgent
+from agents.research.tools.tavily_search import tavily_search
 
 
 class KnowledgeSynthesizerAgent(BaseResearchAgent):
@@ -111,7 +113,9 @@ Provide comprehensive, accurate synthesis that guides research direction."""
 
     def get_tools(self) -> List:
         """Get tools for knowledge synthesis."""
-        return []
+        return [
+            tavily_search,
+        ]
 
     async def synthesize_knowledge(
         self,

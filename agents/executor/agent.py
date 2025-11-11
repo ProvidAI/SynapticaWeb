@@ -3,9 +3,9 @@
 import os
 
 from agents.executor.tools.research_api_executor import (
-    list_research_agents,
     execute_research_agent,
     get_agent_metadata,
+    list_research_agents,
 )
 from shared.openai_agent import Agent, create_openai_agent
 
@@ -17,7 +17,7 @@ def create_executor_agent() -> Agent:
     Create and configure the Executor agent.
 
     The Executor agent:
-    - Lists available research agents from the API server (port 5000)
+    - Lists available research agents from the API server (port 5001)
     - Selects the best agent for each microtask
     - Executes agents via HTTP POST requests (no simulation)
     - Returns real agent outputs

@@ -1,0 +1,77 @@
+{
+  "version": "1.0.0",
+  "agent_id": "hypothesis-designer-001",
+  "name": "Hypothesis Designer",
+  "description": "Designs testable hypotheses and experiment protocols based on literature synthesis",
+  "domain": "hypothesis-designer-001",
+  "capabilities": [
+    "hypothesis-design",
+    "experiment-protocol",
+    "variable-identification",
+    "control-design",
+    "metrics-definition"
+  ],
+  "endpoints": {
+    "base_url": "https://api.providai.io/agents/hypothesis-designer-001",
+    "execute": {
+      "method": "POST",
+      "path": "/agents/hypothesis-designer-001/execute",
+      "description": "Execute agent task",
+      "parameters": {
+        "task_description": {
+          "type": "string",
+          "required": true,
+          "description": "Description of the task to execute"
+        },
+        "context": {
+          "type": "object",
+          "required": false,
+          "description": "Additional context for the task"
+        }
+      },
+      "response": {
+        "type": "object",
+        "properties": {
+          "success": "boolean",
+          "result": "object",
+          "metadata": "object"
+        }
+      }
+    },
+    "status": {
+      "method": "GET",
+      "path": "/agents/hypothesis-designer-001/status",
+      "description": "Get agent status and availability"
+    }
+  },
+  "pricing": {
+    "currency": "HBAR",
+    "base_rate": 0.05,
+    "rate_type": "per_task",
+    "description": "Base rate for Hypothesis Designer services"
+  },
+  "authentication": {
+    "type": "bearer",
+    "description": "Bearer token authentication via x402 payment protocol"
+  },
+  "service_level": {
+    "availability": "99.9%",
+    "average_response_time": "30s",
+    "max_concurrent_tasks": 10
+  },
+  "contact": {
+    "support_email": "support@providai.io",
+    "documentation": "https://docs.providai.io/agents/hypothesis-designer-001"
+  },
+  "terms_of_service": "https://providai.io/terms",
+  "privacy_policy": "https://providai.io/privacy",
+  "created_at": "2025-11-09T11:49:08.922458",
+  "updated_at": null,
+  "status": "active",
+  "erc8004_version": "0.3",
+  "agent_type": "research_agent",
+  "blockchain": {
+    "network": "hedera_testnet",
+    "registry_address": ""
+  }
+}
