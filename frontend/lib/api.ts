@@ -70,8 +70,7 @@ export interface TaskStatusResponse {
  * Create a new task
  */
 export async function createTask(request: CreateTaskRequest): Promise<TaskResponse> {
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
-  const response = await fetch(`${backendUrl}/execute`, {
+  const response = await fetch(`${BACKEND_BASE_URL}/execute`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -91,8 +90,7 @@ export async function createTask(request: CreateTaskRequest): Promise<TaskRespon
  * Get task status
  */
 export async function getTask(taskId: string): Promise<TaskStatusResponse> {
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
-  const response = await fetch(`${backendUrl}/api/tasks/${taskId}`, {
+  const response = await fetch(`${BACKEND_BASE_URL}/api/tasks/${taskId}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -187,6 +185,91 @@ export async function rejectPayment(paymentId: string, reason?: string): Promise
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Failed to reject payment' }));
     throw new Error(error.error || 'Failed to reject payment');
+  }
+
+  return response.json();
+}
+
+// Marketplace ----------------------------------------------------------------
+
+export interface AgentPricing {
+  rate: number;
+  currency: string;
+  rate_type: string;
+}
+
+export interface AgentRecord {
+  agent_id: string;
+  name: string;
+  description?: string;
+  capabilities: string[];
+  categories: string[];
+  status: string;
+  endpoint_url?: string;
+  health_check_url?: string;
+  pricing: AgentPricing;
+  contact_email?: string;
+  logo_url?: string;
+  erc8004_metadata_uri?: string;
+  metadata_cid?: string;
+  metadata_gateway_url?: string;
+  hedera_account_id?: string;
+  created_at?: string;
+}
+
+export interface AgentsListResponse {
+  total: number;
+  agents: AgentRecord[];
+}
+
+export interface AgentSubmissionPayload {
+  agent_id: string;
+  name: string;
+  description: string;
+  capabilities: string[];
+  categories?: string[];
+  endpoint_url: string;
+  health_check_url?: string;
+  base_rate: number;
+  rate_type?: string;
+  hedera_account?: string;
+  logo_url?: string;
+  contact_email?: string;
+}
+
+export interface AgentSubmissionResponse extends AgentRecord {
+  metadata_gateway_url?: string;
+  metadata_cid?: string;
+  operator_checklist: string[];
+  message: string;
+}
+
+const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+
+export async function fetchAgents(): Promise<AgentsListResponse> {
+  const response = await fetch(`${BACKEND_BASE_URL}/api/agents`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to fetch agents' }));
+    throw new Error(error.detail || error.error || 'Failed to fetch agents');
+  }
+
+  return response.json();
+}
+
+export async function submitAgent(payload: AgentSubmissionPayload): Promise<AgentSubmissionResponse> {
+  const response = await fetch(`${BACKEND_BASE_URL}/api/agents`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to submit agent' }));
+    throw new Error(error.detail || error.error || 'Failed to submit agent');
   }
 
   return response.json();

@@ -1,221 +1,243 @@
 'use client'
 
-import { useState } from 'react'
-import { Search, Star, TrendingUp, Database, BarChart3, Globe, FileText, MessageSquare, Code, Brain } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  Search,
+  ExternalLink,
+  Mail,
+  RefreshCcw,
+  Tag,
+  AlertCircle,
+} from 'lucide-react'
 
-interface Agent {
-  id: string
-  name: string
-  category: string
-  description: string
-  capabilities: string[]
-  pricePerTask: number
-  reputation: number
-  totalTasks: number
-  specialty: string
-  icon: any
+import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
+import { AddAgentModal } from '@/components/AddAgentModal'
+import {
+  AgentRecord,
+  AgentSubmissionResponse,
+  fetchAgents,
+} from '@/lib/api'
+import { cn } from '@/lib/utils'
+
+
+function formatPrice(pricing: AgentRecord['pricing']): string {
+  const rate = pricing.rate?.toString() ?? '0'
+  return `${rate} ${pricing.currency}${pricing.rate_type ? ` • ${pricing.rate_type.replace(/_/g, ' ')}` : ''}`
 }
 
-// Mock marketplace data
-const mockAgents: Agent[] = [
-  {
-    id: 'agent_001',
-    name: 'DataCollector_v2',
-    category: 'Data Collection',
-    description: 'High-performance web scraper and API integrator specialized in collecting structured data from multiple sources.',
-    capabilities: ['Web Scraping', 'API Integration', 'Data Cleaning', 'CSV/JSON Export'],
-    pricePerTask: 3.00,
-    reputation: 4.9,
-    totalTasks: 1247,
-    specialty: 'E-commerce & Financial Data',
-    icon: Database,
-  },
-  {
-    id: 'agent_002',
-    name: 'StatsAnalyzer_Pro',
-    category: 'Statistical Analysis',
-    description: 'Advanced statistical analysis agent with expertise in hypothesis testing, regression, and predictive modeling.',
-    capabilities: ['Statistical Testing', 'Regression Analysis', 'Time Series', 'Correlation Studies'],
-    pricePerTask: 4.50,
-    reputation: 4.8,
-    totalTasks: 892,
-    specialty: 'Quantitative Research',
-    icon: BarChart3,
-  },
-  {
-    id: 'agent_003',
-    name: 'SentimentAI_Pro',
-    category: 'NLP & Sentiment',
-    description: 'Natural language processing specialist for sentiment analysis, entity extraction, and text classification.',
-    capabilities: ['Sentiment Analysis', 'Entity Recognition', 'Topic Modeling', 'Text Classification'],
-    pricePerTask: 7.00,
-    reputation: 4.9,
-    totalTasks: 2156,
-    specialty: 'Social Media & Reviews',
-    icon: MessageSquare,
-  },
-  {
-    id: 'agent_004',
-    name: 'MarketIntel_v5',
-    category: 'Market Research',
-    description: 'Comprehensive market intelligence agent for competitive analysis, market sizing, and trend forecasting.',
-    capabilities: ['Market Sizing', 'Competitive Analysis', 'Trend Forecasting', 'Industry Reports'],
-    pricePerTask: 8.50,
-    reputation: 4.7,
-    totalTasks: 634,
-    specialty: 'B2B & SaaS Markets',
-    icon: TrendingUp,
-  },
-  {
-    id: 'agent_005',
-    name: 'ReportGen_v3',
-    category: 'Report Generation',
-    description: 'Automated report generation with data visualization, executive summaries, and actionable insights.',
-    capabilities: ['PDF Reports', 'Data Visualization', 'Executive Summaries', 'Custom Templates'],
-    pricePerTask: 5.00,
-    reputation: 4.7,
-    totalTasks: 1543,
-    specialty: 'Business Intelligence',
-    icon: FileText,
-  },
-  {
-    id: 'agent_006',
-    name: 'WebScraper_Elite',
-    category: 'Data Collection',
-    description: 'Enterprise-grade web scraping with JavaScript rendering, CAPTCHA handling, and proxy rotation.',
-    capabilities: ['JS Rendering', 'CAPTCHA Bypass', 'Proxy Support', 'Rate Limiting'],
-    pricePerTask: 2.75,
-    reputation: 4.6,
-    totalTasks: 987,
-    specialty: 'Complex Web Sources',
-    icon: Globe,
-  },
-  {
-    id: 'agent_007',
-    name: 'CodeAnalyzer_AI',
-    category: 'Code Analysis',
-    description: 'Source code analysis for quality metrics, security vulnerabilities, and technical debt assessment.',
-    capabilities: ['Code Quality', 'Security Scan', 'Dependency Analysis', 'Technical Debt'],
-    pricePerTask: 6.50,
-    reputation: 4.8,
-    totalTasks: 445,
-    specialty: 'Software Engineering',
-    icon: Code,
-  },
-  {
-    id: 'agent_008',
-    name: 'MLPredictor_v4',
-    category: 'Machine Learning',
-    description: 'Machine learning agent for predictive modeling, classification, and anomaly detection tasks.',
-    capabilities: ['Predictive Models', 'Classification', 'Anomaly Detection', 'Feature Engineering'],
-    pricePerTask: 9.00,
-    reputation: 4.9,
-    totalTasks: 723,
-    specialty: 'Predictive Analytics',
-    icon: Brain,
-  },
-  {
-    id: 'agent_009',
-    name: 'CompAnalyzer_v4',
-    category: 'Competitive Intelligence',
-    description: 'Deep competitive intelligence gathering with product comparison, pricing analysis, and strategic positioning.',
-    capabilities: ['Product Comparison', 'Pricing Analysis', 'Feature Mapping', 'Strategic Insights'],
-    pricePerTask: 6.00,
-    reputation: 4.8,
-    totalTasks: 558,
-    specialty: 'Product Strategy',
-    icon: TrendingUp,
-  },
-  {
-    id: 'agent_010',
-    name: 'SocialScraper_v5',
-    category: 'Social Media',
-    description: 'Multi-platform social media data collection including posts, comments, metrics, and engagement data.',
-    capabilities: ['Multi-Platform', 'Engagement Metrics', 'Hashtag Tracking', 'Influencer Analysis'],
-    pricePerTask: 4.00,
-    reputation: 4.9,
-    totalTasks: 1876,
-    specialty: 'Social Listening',
-    icon: MessageSquare,
-  },
-  {
-    id: 'agent_011',
-    name: 'InsightGen_v2',
-    category: 'Data Visualization',
-    description: 'Transform raw data into interactive dashboards, charts, and data stories for stakeholder presentations.',
-    capabilities: ['Interactive Dashboards', 'Custom Charts', 'Data Stories', 'Export Formats'],
-    pricePerTask: 4.00,
-    reputation: 4.5,
-    totalTasks: 967,
-    specialty: 'Data Presentation',
-    icon: BarChart3,
-  },
-  {
-    id: 'agent_012',
-    name: 'FinancialAnalyzer_Pro',
-    category: 'Financial Analysis',
-    description: 'Financial data analysis including P&L modeling, ratio analysis, and investment research.',
-    capabilities: ['Financial Modeling', 'Ratio Analysis', 'Valuation', 'Risk Assessment'],
-    pricePerTask: 8.00,
-    reputation: 4.9,
-    totalTasks: 412,
-    specialty: 'Corporate Finance',
-    icon: TrendingUp,
-  },
-]
+interface AgentCardProps {
+  agent: AgentRecord
+  highlight?: boolean
+}
 
-const categories = ['All', 'Data Collection', 'Statistical Analysis', 'NLP & Sentiment', 'Market Research', 'Report Generation', 'Machine Learning']
+function AgentCard({ agent, highlight }: AgentCardProps) {
+  return (
+    <div
+      className={cn(
+        'relative flex flex-col gap-4 rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-[0_20px_60px_-40px_rgba(56,189,248,0.6)] transition hover:border-sky-500/50 hover:shadow-[0_25px_70px_-40px_rgba(56,189,248,0.8)]',
+        highlight && 'border-emerald-400/60 shadow-[0_20px_60px_-35px_rgba(16,185,129,0.8)]'
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold text-white">{agent.name}</h3>
+            <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-300">
+              {agent.status}
+            </span>
+          </div>
+          <p className="mt-2 line-clamp-3 text-sm text-slate-300">{agent.description}</p>
+        </div>
+        {agent.logo_url && (
+          <img
+            src={agent.logo_url}
+            alt={`${agent.name} logo`}
+            className="h-12 w-12 rounded-full border border-white/20 object-cover"
+          />
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2 text-xs">
+        {agent.categories.length
+          ? agent.categories.map((category) => (
+              <span
+                key={category}
+                className="inline-flex items-center gap-1 rounded-full border border-white/20 px-3 py-1 text-slate-200"
+              >
+                <Tag className="h-3 w-3" />
+                {category}
+              </span>
+            ))
+          : (
+            <span className="inline-flex items-center gap-1 rounded-full border border-white/20 px-3 py-1 text-slate-200">
+              <Tag className="h-3 w-3" />
+              General
+            </span>
+          )}
+      </div>
+
+      <div>
+        <h4 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+          Capabilities
+        </h4>
+        <ul className="mt-2 grid gap-1 text-sm text-slate-200">
+          {agent.capabilities.slice(0, 4).map((capability) => (
+            <li key={capability} className="flex items-start gap-2">
+              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-sky-400" />
+              <span>{capability}</span>
+            </li>
+          ))}
+          {agent.capabilities.length > 4 && (
+            <li className="text-xs text-slate-400">
+              + {agent.capabilities.length - 4} more
+            </li>
+          )}
+        </ul>
+      </div>
+
+      <div className="grid gap-2 text-sm text-slate-300">
+        <div>
+          <span className="font-medium text-slate-100">Pricing: </span>
+          {formatPrice(agent.pricing)}
+        </div>
+        {agent.contact_email && (
+          <div className="flex items-center gap-2">
+            <Mail className="h-4 w-4 text-slate-400" />
+            <a
+              href={`mailto:${agent.contact_email}`}
+              className="text-sky-400 hover:text-sky-200"
+            >
+              {agent.contact_email}
+            </a>
+          </div>
+        )}
+        {agent.metadata_gateway_url && (
+          <div className="flex items-center gap-2">
+            <ExternalLink className="h-4 w-4 text-slate-400" />
+            <a
+              href={agent.metadata_gateway_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sky-400 hover:text-sky-200"
+            >
+              Metadata
+            </a>
+          </div>
+        )}
+      </div>
+
+      {agent.endpoint_url && (
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300">
+          <p className="font-medium text-slate-100">Endpoint</p>
+          <p className="mt-1 break-all text-[11px] text-slate-400">{agent.endpoint_url}</p>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function Marketplace() {
+  const queryClient = useQueryClient()
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('All')
+  const [recentAgentId, setRecentAgentId] = useState<string | null>(null)
 
-  const filteredAgents = mockAgents.filter((agent) => {
-    const matchesSearch =
-      searchQuery === '' ||
-      agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      agent.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      agent.specialty.toLowerCase().includes(searchQuery.toLowerCase())
-
-    const matchesCategory = selectedCategory === 'All' || agent.category === selectedCategory
-
-    return matchesSearch && matchesCategory
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
+    queryKey: ['agents'],
+    queryFn: fetchAgents,
+    refetchOnWindowFocus: false,
   })
+
+  const agents = data?.agents ?? []
+
+  const categories = useMemo(() => {
+    const unique = new Set<string>()
+    agents.forEach((agent) => {
+      agent.categories.forEach((category) => unique.add(category))
+    })
+    return ['All', ...Array.from(unique)]
+  }, [agents])
+
+  const filteredAgents = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    return agents.filter((agent) => {
+      const matchesCategory =
+        selectedCategory === 'All' ||
+        agent.categories.includes(selectedCategory)
+
+      if (!matchesCategory) {
+        return false
+      }
+
+      if (!query) {
+        return true
+      }
+
+      const haystack = [
+        agent.name,
+        agent.agent_id,
+        agent.description ?? '',
+        ...agent.capabilities,
+        ...agent.categories,
+      ]
+        .join(' ')
+        .toLowerCase()
+
+      return haystack.includes(query)
+    })
+  }, [agents, searchQuery, selectedCategory])
+
+  const handleAgentCreated = (agent: AgentSubmissionResponse) => {
+    setRecentAgentId(agent.agent_id)
+    setSearchQuery('')
+    setSelectedCategory('All')
+    queryClient.invalidateQueries({ queryKey: ['agents'] })
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl font-semibold text-white">Agent Marketplace</h2>
-        <p className="mt-1 text-sm text-slate-400">
-          Browse {mockAgents.length} specialized research agents ready to assist with your queries
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-semibold text-white">Agent Marketplace</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Discover specialist agents ready to plug into your workflows.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            className="flex items-center gap-2 rounded-full px-4 py-2 text-sm text-slate-200 hover:text-white"
+            onClick={() => refetch()}
+            disabled={isFetching}
+          >
+            {isFetching ? <Spinner size={16} /> : <RefreshCcw className="h-4 w-4" />}
+            Refresh
+          </Button>
+          <AddAgentModal onSuccess={handleAgentCreated} />
+        </div>
       </div>
 
-      {/* Search and Filter */}
       <div className="space-y-4">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
           <input
-            type="text"
-            placeholder="Search agents by name, capability, or specialty..."
+            className="w-full rounded-2xl border border-white/10 bg-slate-900/80 py-3 pl-12 pr-4 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+            placeholder="Search agents by name, capability, or category..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-xl border border-white/15 bg-slate-900/50 py-3 pl-12 pr-4 text-white placeholder-slate-400 backdrop-blur-sm transition focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400/20"
+            onChange={(event) => setSearchQuery(event.target.value)}
           />
         </div>
-
         <div className="flex flex-wrap gap-2">
           {categories.map((category) => (
             <button
               key={category}
+              className={cn(
+                'rounded-full border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-300 transition hover:border-sky-500/40 hover:text-white',
+                selectedCategory === category && 'border-sky-500/60 bg-sky-500/10 text-white'
+              )}
               onClick={() => setSelectedCategory(category)}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                selectedCategory === category
-                  ? 'bg-sky-500 text-white'
-                  : 'bg-slate-800/50 text-slate-300 hover:bg-slate-800 hover:text-white'
-              }`}
             >
               {category}
             </button>
@@ -223,82 +245,33 @@ export function Marketplace() {
         </div>
       </div>
 
-      {/* Agent Grid */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {filteredAgents.map((agent) => {
-          const IconComponent = agent.icon
-          return (
-            <div
-              key={agent.id}
-              className="group overflow-hidden rounded-2xl border border-white/15 bg-slate-900/50 backdrop-blur-sm transition hover:border-sky-400/50 hover:bg-slate-900/70"
-            >
-              <div className="p-6">
-                {/* Agent Header */}
-                <div className="flex items-start gap-4">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500/20 via-indigo-500/20 to-purple-600/20 text-sky-400 ring-1 ring-white/10">
-                    <IconComponent className="h-7 w-7" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-white">{agent.name}</h3>
-                    <p className="text-sm text-sky-400">{agent.category}</p>
-                  </div>
-                </div>
-
-                {/* Description */}
-                <p className="mt-4 text-sm leading-relaxed text-slate-300">
-                  {agent.description}
-                </p>
-
-                {/* Specialty */}
-                <div className="mt-4">
-                  <span className="inline-flex items-center rounded-full bg-purple-500/10 px-3 py-1 text-xs font-medium text-purple-400 ring-1 ring-purple-400/20">
-                    {agent.specialty}
-                  </span>
-                </div>
-
-                {/* Capabilities */}
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {agent.capabilities.map((capability) => (
-                    <span
-                      key={capability}
-                      className="rounded-lg bg-slate-800/50 px-2.5 py-1 text-xs text-slate-300"
-                    >
-                      {capability}
-                    </span>
-                  ))}
-                </div>
-
-                {/* Stats and Price */}
-                <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4">
-                  <div className="flex items-center gap-4 text-sm">
-                    <div className="flex items-center gap-1.5">
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <span className="font-medium text-white">{agent.reputation}</span>
-                    </div>
-                    <div className="text-slate-400">
-                      {agent.totalTasks.toLocaleString()} tasks
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-semibold text-white">
-                      ${agent.pricePerTask.toFixed(2)}
-                    </div>
-                    <div className="text-xs text-slate-400">per task</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Empty State */}
-      {filteredAgents.length === 0 && (
-        <div className="rounded-2xl border border-white/15 bg-slate-900/50 p-12 text-center">
-          <p className="text-slate-400">No agents found matching your criteria</p>
-          <p className="mt-2 text-sm text-slate-500">
-            Try adjusting your search or filter settings
-          </p>
+      {isLoading ? (
+        <div className="flex items-center justify-center rounded-3xl border border-white/10 bg-slate-950/70 py-16">
+          <Spinner size={28} className="text-sky-400" />
+        </div>
+      ) : isError ? (
+        <div className="flex items-center gap-3 rounded-3xl border border-rose-500/40 bg-rose-500/10 p-6 text-sm text-rose-200">
+          <AlertCircle className="h-5 w-5" />
+          <div>
+            <p className="font-semibold">Failed to load agents.</p>
+            <p className="text-rose-100">
+              {(error as Error)?.message ?? 'Please try again later.'}
+            </p>
+          </div>
+        </div>
+      ) : filteredAgents.length === 0 ? (
+        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-10 text-center text-sm text-slate-300">
+          No agents match your current filters.
+        </div>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
+          {filteredAgents.map((agent) => (
+            <AgentCard
+              key={agent.agent_id}
+              agent={agent}
+              highlight={recentAgentId === agent.agent_id}
+            />
+          ))}
         </div>
       )}
     </div>

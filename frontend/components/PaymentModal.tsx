@@ -5,7 +5,7 @@ import { AlertCircle } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { useTaskStore } from '@/store/taskStore'
-import { handlePaymentChallenge } from '@/lib/api'
+import { approvePayment, rejectPayment } from '@/lib/api'
 
 export function PaymentModal() {
   const { paymentDetails, selectedAgent, taskId, setStatus, setPaymentDetails } = useTaskStore()
@@ -21,21 +21,14 @@ export function PaymentModal() {
       setError(null)
       setIsPending(true)
 
-      // Update status and forward payment details to backend for Hedera testnet processing
+      // Update status and forward payment details to backend for processing
       setStatus('PAYING')
 
-      // Backend handles Hedera transaction using its own testnet credentials
-      await handlePaymentChallenge(
-        taskId,
-        {
-          ...paymentDetails,
-          description: paymentDetails.description ?? 'ProvidAI task payment',
-        },
-        'hedera-backend'
-      )
+      await approvePayment(paymentDetails.paymentId)
 
       // Close modal
       setPaymentDetails(null)
+      setStatus('EXECUTING')
     } catch (err: any) {
       setError(err.message || 'Failed to process payment')
       console.error('Payment processing error:', err)
@@ -45,6 +38,9 @@ export function PaymentModal() {
   }
 
   const handleCancel = () => {
+    if (paymentDetails) {
+      rejectPayment(paymentDetails.paymentId).catch(() => null)
+    }
     setPaymentDetails(null)
     setStatus('FAILED')
     setError('Payment cancelled by user')
