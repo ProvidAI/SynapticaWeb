@@ -1,6 +1,7 @@
 """Base class for all research agents."""
 
 import os
+import re
 from typing import Dict, Any, List, Optional
 from abc import ABC, abstractmethod
 from shared.openai_agent import Agent
@@ -64,6 +65,8 @@ class BaseResearchAgent(ABC):
         """Register agent in database if not already registered."""
         db = SessionLocal()
         try:
+            default_endpoint = f"{os.getenv('RESEARCH_API_URL', 'http://localhost:5000').rstrip('/')}/agents/{self.agent_id}"
+            normalized_pricing = self._normalize_pricing()
             # Check if agent exists
             existing = db.query(AgentModel).filter(AgentModel.agent_id == self.agent_id).first()
 
@@ -77,9 +80,10 @@ class BaseResearchAgent(ABC):
                     capabilities=self.capabilities,
                     status="active",
                     meta={
-                        "pricing": self.pricing,
+                        "pricing": normalized_pricing,
                         "model": self.model,
                         "created_at": datetime.utcnow().isoformat(),
+                        "endpoint_url": default_endpoint,
                     }
                 )
                 db.add(agent_record)
@@ -95,10 +99,78 @@ class BaseResearchAgent(ABC):
                 db.commit()
                 print(f"Registered agent {self.agent_id} in database")
             else:
+                meta = existing.meta or {}
+                updated = False
+                if meta.get("endpoint_url") != default_endpoint:
+                    meta["endpoint_url"] = default_endpoint
+                    updated = True
+
+                current_pricing = meta.get("pricing")
+                if not isinstance(current_pricing, dict):
+                    meta["pricing"] = normalized_pricing
+                    updated = True
+                else:
+                    reconciled = self._merge_pricing(current_pricing, normalized_pricing)
+                    if reconciled != current_pricing:
+                        meta["pricing"] = reconciled
+                        updated = True
+
+                if updated:
+                    existing.meta = meta
+                    db.commit()
+
                 print(f"Agent {self.agent_id} already registered")
 
         finally:
             db.close()
+
+    def _normalize_pricing(self) -> Dict[str, Any]:
+        """Convert the agent's pricing definition into a normalized structure."""
+        pricing = self.pricing or {}
+        rate_raw = pricing.get("rate")
+        currency = pricing.get("currency")
+
+        if isinstance(rate_raw, str):
+            match = re.search(r"([0-9]*\.?[0-9]+)", rate_raw)
+            if match:
+                rate_value = float(match.group(1))
+            else:
+                rate_value = 0.0
+            if not currency:
+                parts = rate_raw.replace(match.group(1), "").strip().split() if match else rate_raw.split()
+                if parts:
+                    currency = parts[0]
+        elif isinstance(rate_raw, (int, float)):
+            rate_value = float(rate_raw)
+        else:
+            rate_value = 0.0
+
+        currency = currency or "HBAR"
+        rate_type = (
+            pricing.get("rate_type")
+            or pricing.get("rateType")
+            or pricing.get("unit")
+            or "per_task"
+        )
+
+        return {
+            "rate": rate_value,
+            "currency": currency,
+            "rate_type": rate_type,
+        }
+
+    @staticmethod
+    def _merge_pricing(existing: Dict[str, Any], normalized: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge existing pricing metadata with normalized values, preferring numeric fields."""
+        merged = dict(existing or {})
+        for key, value in normalized.items():
+            current = merged.get(key)
+            if key == "rate":
+                if not isinstance(current, (int, float)) or current != value:
+                    merged[key] = value
+            elif not current:
+                merged[key] = value
+        return merged
 
     @abstractmethod
     def get_system_prompt(self) -> str:

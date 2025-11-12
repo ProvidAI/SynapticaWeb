@@ -15,6 +15,7 @@ from shared.database import engine, Base, SessionLocal
 from shared.database.models import A2AEvent
 from .middleware import logging_middleware
 from agents.orchestrator.agent import create_orchestrator_agent
+from api.routes import agents as agents_routes
 import shared.task_progress as task_progress
 
 # Load environment variables
@@ -122,6 +123,9 @@ app.add_middleware(
 
 # Add custom middleware
 app.middleware("http")(logging_middleware)
+
+# API routes
+app.include_router(agents_routes.router)
 
 
 @app.get("/")
