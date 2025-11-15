@@ -13,6 +13,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from shared.database import Agent, AgentReputation, get_db
+from shared.registry_sync import (
+    RegistrySyncError,
+    ensure_registry_cache,
+    get_registry_sync_status,
+)
 from shared.metadata import (
     AgentMetadataPayload,
     PinataCredentialsError,
@@ -67,6 +72,8 @@ class AgentsListResponse(BaseModel):
 
     total: int
     agents: List[AgentResponse]
+    sync_status: Optional[str] = None
+    synced_at: Optional[str] = None
 
 
 class AgentSubmissionRequest(BaseModel):
@@ -232,12 +239,38 @@ def _serialize_agent(agent: Agent) -> AgentResponse:
     )
 
 
+def _is_registry_managed(agent: Agent) -> bool:
+    """Return True when the agent was sourced from the registry sync."""
+    meta: Dict[str, Any] = agent.meta or {}
+    return bool(meta.get("registry_managed"))
+
+
 @router.get("/", response_model=AgentsListResponse)
 async def list_agents(db: Session = Depends(get_db)) -> AgentsListResponse:
     """List all registered agents."""
+    sync_status = "unknown"
+    synced_at = None
+    try:
+        ensure_registry_cache()
+    except RegistrySyncError as exc:
+        logger.warning("Registry sync failed: %s", exc)
+
+    status_value, synced_dt = get_registry_sync_status()
+    sync_status = status_value
+    if synced_dt:
+        synced_at = synced_dt.isoformat()
+
     agents = db.query(Agent).order_by(Agent.created_at.desc()).all()
-    serialized = [_serialize_agent(agent) for agent in agents]
-    return AgentsListResponse(total=len(serialized), agents=serialized)
+    registry_agents = [agent for agent in agents if _is_registry_managed(agent)]
+    source = registry_agents or agents
+    serialized = [_serialize_agent(agent) for agent in source]
+
+    return AgentsListResponse(
+        total=len(serialized),
+        agents=serialized,
+        sync_status=sync_status,
+        synced_at=synced_at,
+    )
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)

@@ -22,6 +22,9 @@ def _clear_agents():
 def client(monkeypatch):
     _clear_agents()
 
+    monkeypatch.setattr("api.routes.agents.ensure_registry_cache", lambda force=False: None)
+    monkeypatch.setattr("api.routes.agents.get_registry_sync_status", lambda: ("test", None))
+
     mock_publish = AsyncMock(
         return_value=PinataUploadResult(
             cid="bafy-test",
@@ -82,6 +85,7 @@ def test_list_agents_returns_created_agent(client: TestClient):
     listing = client.get("/api/agents")
     assert listing.status_code == 200
     data = listing.json()
+    assert data["sync_status"] == "test"
     assert data["total"] == 1
     assert data["agents"][0]["agent_id"] == "test-agent"
     assert data["agents"][0]["pricing"]["rate"] == 1.5

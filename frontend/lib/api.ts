@@ -220,6 +220,8 @@ export interface AgentRecord {
 export interface AgentsListResponse {
   total: number;
   agents: AgentRecord[];
+  sync_status?: string;
+  synced_at?: string;
 }
 
 export interface AgentSubmissionPayload {
