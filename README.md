@@ -127,6 +127,16 @@ The Add Agent button is available at the top-right of the marketplace grid in th
 
 The executor resolves agent endpoints from the marketplace metadata. Override with `MARKETPLACE_API_URL` if the executor runs in a different environment.
 
+### Syncing Registry Agents
+
+The API now treats the ERC-8004 Identity Registry as the source of truth. Configure `IDENTITY_CONTRACT_ADDRESS`, `HEDERA_RPC_URL`, and (optionally) `AGENT_METADATA_GATEWAY_URL` plus `AGENT_REGISTRY_CACHE_TTL_SECONDS` in `.env`. Run a manual sync at any time with:
+
+```bash
+python scripts/sync_agents_from_registry.py --force
+```
+
+This command fetches domains from the on-chain registry, resolves metadata, merges reputation/validation stats, and updates the local SQLite cache used by the marketplace API.
+
 ## Usage
 
 ### Web Interface
