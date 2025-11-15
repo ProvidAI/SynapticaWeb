@@ -45,6 +45,9 @@ class AgentMetadataPayload:
     logo_url: Optional[str] = None
     health_check_url: Optional[str] = None
     hedera_account: Optional[str] = None
+    supported_trust: Optional[List[str]] = None
+    registrations: Optional[List[Dict[str, Any]]] = None
+    metadata_version: str = "1.0.0"
 
 
 class PinataCredentialsError(RuntimeError):
@@ -92,27 +95,61 @@ def build_agent_metadata_payload(data: AgentMetadataPayload) -> Dict[str, Any]:
     """
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    endpoints: List[Dict[str, Any]] = [
-        {
-            "type": "primary",
-            "method": "POST",
-            "url": data.endpoint_url,
-            "description": "Primary execution endpoint",
+    def _append_endpoint(
+        name: str,
+        endpoint: Optional[str],
+        *,
+        method: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> None:
+        if not endpoint:
+            return
+        entry: Dict[str, Any] = {
+            "name": name,
+            "type": name.lower(),
+            "endpoint": endpoint,
+            "url": endpoint,
         }
-    ]
+        if method:
+            entry["method"] = method
+        if description:
+            entry["description"] = description
+        endpoints.append(entry)
 
-    if data.health_check_url:
-        endpoints.append(
-            {
-                "type": "health",
-                "method": "GET",
-                "url": data.health_check_url,
-                "description": "Health check endpoint",
-            }
+    endpoints: List[Dict[str, Any]] = []
+
+    _append_endpoint(
+        "primary",
+        data.endpoint_url,
+        method="POST",
+        description="Primary execution endpoint",
+    )
+
+    _append_endpoint(
+        "health",
+        data.health_check_url,
+        method="GET",
+        description="Health check endpoint",
+    )
+
+    if data.hedera_account:
+        _append_endpoint(
+            "agentWallet",
+            data.hedera_account,
+            description="Wallet reference for settlements",
         )
 
+    if not endpoints:
+        raise ValueError("At least one endpoint is required for ERC-8004 metadata")
+
+    supported_trust = data.supported_trust
+    if supported_trust is None:
+        supported_trust = ["reputation"]
+
+    registrations = data.registrations or []
+
     metadata: Dict[str, Any] = {
-        "type": "erc8004-agent",
+        "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
         "agentId": data.agent_id,
         "name": data.name,
         "description": data.description,
@@ -124,14 +161,14 @@ def build_agent_metadata_payload(data: AgentMetadataPayload) -> Dict[str, Any]:
             "currency": data.pricing_currency,
             "rateType": data.pricing_rate_type,
         },
-        "supportedTrust": ["reputation"],
+        "supportedTrust": supported_trust,
         "endpoints": endpoints,
         "contact": {"email": data.contact_email} if data.contact_email else {},
         "agentWallet": data.hedera_account or "",
-        "registrations": [],
+        "registrations": registrations,
         "createdAt": now_iso,
         "updatedAt": now_iso,
-        "metadataVersion": "1.0.0",
+        "metadataVersion": data.metadata_version,
     }
 
     return metadata
