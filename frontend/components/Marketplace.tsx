@@ -1,18 +1,23 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import {
+  BarChart3,
+  Bot,
+  Brain,
+  ChevronDown,
+  Code,
+  Database,
+  FileText,
+  Globe,
+  MessageSquare,
   Search,
-  ExternalLink,
-  Mail,
-  RefreshCcw,
-  Tag,
-  AlertCircle,
+  Star,
+  TrendingUp,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
-import { Search, Star, TrendingUp, Database, BarChart3, Globe, FileText, MessageSquare, Code, Brain, Bot, ChevronDown } from 'lucide-react'
-import { getAgents, type AgentSummary } from '@/lib/api'
+
+import { getAgents, type AgentRecord } from '@/lib/api'
 
 type IconType = typeof Database
 
@@ -27,77 +32,45 @@ const typeToIcon: Record<string, IconType> = {
   web: Globe,
 }
 
-export function Marketplace() {
-  const queryClient = useQueryClient()
-  const [searchQuery, setSearchQuery] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState('All')
-  const [agents, setAgents] = useState<AgentSummary[]>([])
-  const [loading, setLoading] = useState<boolean>(false)
-  const [error, setError] = useState<string | null>(null)
-  const [showAllTags, setShowAllTags] = useState<boolean>(false)
-
-  useEffect(() => {
-    let mounted = true
-    setLoading(true)
-    setError(null)
-    getAgents()
-      .then((data) => {
-        if (mounted) setAgents(Array.isArray(data) ? data : [])
-      })
-      .catch((e) => {
-        if (mounted) setError(e?.message || 'Failed to load agents')
-      })
-      .finally(() => {
-        if (mounted) setLoading(false)
-      })
-    return () => {
-      mounted = false
-    }
-  }, [])
-
-  const categories = useMemo(() => {
-    const set = new Set<string>()
-    agents.forEach((a) => a.capabilities?.forEach((c) => set.add(c)))
-    return ['All', ...Array.from(set).sort()]
-  }, [agents])
-
-  const filteredAgents = useMemo(() => {
-    return agents.filter((agent) => {
-      const matchesSearch =
-        searchQuery === '' ||
-        agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        agent.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        agent.capabilities.some((c) => c.toLowerCase().includes(searchQuery.toLowerCase()))
-
-      const matchesCategory = selectedCategory === 'All' || agent.capabilities.includes(selectedCategory)
-
-      return matchesSearch && matchesCategory
-    })
-  }, [agents, searchQuery, selectedCategory])
-
-  const handleSelectCategory = (category: string) => {
-    setSelectedCategory(category)
-    // Keep drawer open when browsing; close on selection if not "All"
-    if (category !== 'All') setShowAllTags(false)
+function resolveAgentTags(agent: AgentRecord): string[] {
+  if (Array.isArray(agent.categories) && agent.categories.length > 0) {
+    return agent.categories
   }
 
-  const agents = data?.agents ?? []
+  if (Array.isArray(agent.capabilities) && agent.capabilities.length > 0) {
+    return agent.capabilities
+  }
+
+  return []
+}
+
+export function Marketplace() {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('All')
+  const [showAllTags, setShowAllTags] = useState(false)
+
+  const { data, isLoading, isError, error } = useQuery<AgentRecord[], Error>({
+    queryKey: ['agents'],
+    queryFn: getAgents,
+    staleTime: 60_000,
+  })
+
+  const agents = data ?? []
+  const errorMessage = isError ? error?.message ?? 'Failed to load agents' : null
 
   const categories = useMemo(() => {
-    const unique = new Set<string>()
+    const tagSet = new Set<string>()
     agents.forEach((agent) => {
-      agent.categories.forEach((category) => unique.add(category))
+      resolveAgentTags(agent).forEach((tag) => tagSet.add(tag))
     })
-    return ['All', ...Array.from(unique)]
+    return ['All', ...Array.from(tagSet).sort((a, b) => a.localeCompare(b))]
   }, [agents])
 
   const filteredAgents = useMemo(() => {
     const query = searchQuery.trim().toLowerCase()
     return agents.filter((agent) => {
-      const matchesCategory =
-        selectedCategory === 'All' ||
-        agent.categories.includes(selectedCategory)
-
+      const tags = resolveAgentTags(agent)
+      const matchesCategory = selectedCategory === 'All' || tags.includes(selectedCategory)
       if (!matchesCategory) {
         return false
       }
@@ -106,12 +79,13 @@ export function Marketplace() {
         return true
       }
 
+      const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities : []
       const haystack = [
-        agent.name,
-        agent.agent_id,
+        agent.name ?? '',
+        agent.agent_id ?? '',
         agent.description ?? '',
-        ...agent.capabilities,
-        ...agent.categories,
+        ...capabilities,
+        ...tags,
       ]
         .join(' ')
         .toLowerCase()
@@ -120,20 +94,19 @@ export function Marketplace() {
     })
   }, [agents, searchQuery, selectedCategory])
 
-  const handleAgentCreated = (agent: AgentSubmissionResponse) => {
-    setRecentAgentId(agent.agent_id)
-    setSearchQuery('')
-    setSelectedCategory('All')
-    queryClient.invalidateQueries({ queryKey: ['agents'] })
+  const handleSelectCategory = (category: string) => {
+    setSelectedCategory(category)
+    // Keep drawer open when browsing; close on selection if not "All"
+    if (category !== 'All') {
+      setShowAllTags(false)
+    }
   }
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold text-white">Agent Marketplace</h2>
-        <p className="mt-1 text-sm text-slate-400">
-          Browse {agents.length} registered agents
-        </p>
+        <p className="mt-1 text-sm text-slate-400">Browse {agents.length} registered agents</p>
       </div>
 
       <div className="space-y-4">
@@ -144,12 +117,13 @@ export function Marketplace() {
             placeholder="Search agents by name or capability..."
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
+            className="w-full rounded-2xl border border-white/10 bg-slate-900/40 px-12 py-3 text-sm text-white placeholder:text-slate-500 focus:border-sky-400/50 focus:outline-none focus:ring-1 focus:ring-sky-400/30"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={() => setShowAllTags((v) => !v)}
+            onClick={() => setShowAllTags((value) => !value)}
             className="inline-flex items-center gap-2 rounded-lg bg-slate-800/60 px-3 py-2 text-sm text-slate-200 ring-1 ring-white/10 transition hover:bg-slate-800"
             aria-expanded={showAllTags}
             aria-controls="all-tags-accordion"
@@ -170,7 +144,7 @@ export function Marketplace() {
             <div className="max-h-56 overflow-y-auto pr-1">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                 {categories
-                  .filter((c) => c !== 'All')
+                  .filter((category) => category !== 'All')
                   .map((category) => (
                     <button
                       key={category}
@@ -191,81 +165,79 @@ export function Marketplace() {
         )}
       </div>
 
-      {loading && (
+      {isLoading && (
         <div className="rounded-2xl border border-white/15 bg-slate-900/50 p-6 text-center text-slate-400">
           Loading agents...
         </div>
       )}
-      {error && !loading && (
+      {errorMessage && !isLoading && (
         <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-center text-red-300">
-          {error}
+          {errorMessage}
         </div>
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        {!loading && !error && filteredAgents.map((agent) => {
-          const mapped = agent.agent_type?.toLowerCase?.() || ''
-          const IconComponent = typeToIcon[mapped] || (Bot as IconType)
-          return (
-            <div
-              key={agent.agent_id}
-              className="group overflow-hidden rounded-2xl border border-white/15 bg-slate-900/50 backdrop-blur-sm transition hover:border-sky-400/50 hover:bg-slate-900/70"
-            >
-              <div className="p-6">
-                <div className="flex items-start gap-4">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500/20 via-indigo-500/20 to-purple-600/20 text-sky-400 ring-1 ring-white/10">
-                    <IconComponent className="h-7 w-7" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-white">{agent.name}</h3>
-                    <p className="text-sm text-sky-400">{agent.agent_type}</p>
-                  </div>
-                </div>
+        {!isLoading &&
+          !errorMessage &&
+          filteredAgents.map((agent) => {
+            const typeKey = (agent.agent_type || '').toLowerCase()
+            const IconComponent = typeToIcon[typeKey] || Bot
+            const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities : []
 
-                <p className="mt-4 text-sm leading-relaxed text-slate-300">
-                  {agent.description}
-                </p>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {agent.capabilities.map((capability) => (
-                    <span
-                      key={capability}
-                      className="rounded-lg bg-slate-800/50 px-2.5 py-1 text-xs text-slate-300"
-                    >
-                      {capability}
-                    </span>
-                  ))}
-                </div>
-
-                <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4">
-                  <div className="flex items-center gap-4 text-sm">
-                    <div className="flex items-center gap-1.5">
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <span className="font-medium text-white">—</span>
+            return (
+              <div
+                key={agent.agent_id}
+                className="group overflow-hidden rounded-2xl border border-white/15 bg-slate-900/50 backdrop-blur-sm transition hover:border-sky-400/50 hover:bg-slate-900/70"
+              >
+                <div className="p-6">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500/20 via-indigo-500/20 to-purple-600/20 text-sky-400 ring-1 ring-white/10">
+                      <IconComponent className="h-7 w-7" />
                     </div>
-                    <div className="text-slate-400">
-                      —
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-white">{agent.name}</h3>
+                      {agent.agent_type && <p className="text-sm text-sky-400">{agent.agent_type}</p>}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-lg font-semibold text-white">
-                      —
+
+                  <p className="mt-4 text-sm leading-relaxed text-slate-300">
+                    {agent.description || 'No description provided.'}
+                  </p>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {capabilities.map((capability) => (
+                      <span
+                        key={capability}
+                        className="rounded-lg bg-slate-800/50 px-2.5 py-1 text-xs text-slate-300"
+                      >
+                        {capability}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4">
+                    <div className="flex items-center gap-4 text-sm">
+                      <div className="flex items-center gap-1.5">
+                        <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                        <span className="font-medium text-white">—</span>
+                      </div>
+                      <div className="text-slate-400">—</div>
                     </div>
-                    <div className="text-xs text-slate-400">per task</div>
+                    <div className="text-right">
+                      <div className="text-lg font-semibold text-white">—</div>
+                      <div className="text-xs text-slate-400">per task</div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )
-        })}
+            )
+          })}
       </div>
 
-      {!loading && !error && filteredAgents.length === 0 && (
+      {!isLoading && !errorMessage && filteredAgents.length === 0 && (
         <div className="rounded-2xl border border-white/15 bg-slate-900/50 p-12 text-center">
           <p className="text-slate-400">No agents found matching your criteria</p>
-          <p className="mt-2 text-sm text-slate-500">
-            Try adjusting your search or filter settings
-          </p>
+          <p className="mt-2 text-sm text-slate-500">Try adjusting your search or filter settings</p>
         </div>
       )}
     </div>

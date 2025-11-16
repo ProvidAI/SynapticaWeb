@@ -13,7 +13,7 @@ from shared.task_progress import update_progress
 logger = logging.getLogger(__name__)
 
 # Research agents API base URL
-RESEARCH_API_BASE_URL = os.getenv("RESEARCH_API_URL", "http://localhost:5000")
+RESEARCH_API_BASE_URL = os.getenv("RESEARCH_API_URL", "http://localhost:5001")
 MARKETPLACE_API_BASE_URL = (
     os.getenv("MARKETPLACE_API_URL")
     or os.getenv("BACKEND_API_URL")

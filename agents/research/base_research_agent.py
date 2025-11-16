@@ -65,7 +65,7 @@ class BaseResearchAgent(ABC):
         """Register agent in database if not already registered."""
         db = SessionLocal()
         try:
-            default_endpoint = f"{os.getenv('RESEARCH_API_URL', 'http://localhost:5000').rstrip('/')}/agents/{self.agent_id}"
+            default_endpoint = f"{os.getenv('RESEARCH_API_URL', 'http://localhost:5001').rstrip('/')}/agents/{self.agent_id}"
             normalized_pricing = self._normalize_pricing()
             # Check if agent exists
             existing = db.query(AgentModel).filter(AgentModel.agent_id == self.agent_id).first()

@@ -30,7 +30,7 @@ def _resolve_endpoint_url(agent: AgentModel) -> str:
     if endpoint:
         return endpoint
 
-    base_url = os.getenv("RESEARCH_API_URL", "http://localhost:5000")
+    base_url = os.getenv("RESEARCH_API_URL", "http://localhost:5001")
     return f"{base_url.rstrip('/')}/agents/{agent.agent_id}"
 
 
