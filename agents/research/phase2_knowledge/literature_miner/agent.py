@@ -15,6 +15,7 @@ from .tools import (
     create_paper_url,
     extract_paper_metadata,
 )
+from agents.research.tools.tavily_search import tavily_search, tavily_research_search
 from shared.research.validators import validate_literature_corpus
 
 
@@ -60,6 +61,8 @@ class LiteratureMinerAgent(BaseResearchAgent):
             search_arxiv,
             search_semantic_scholar,
             search_web_for_research,
+            tavily_search,
+            tavily_research_search,
             calculate_relevance_score,
             deduplicate_papers,
             rank_papers_by_relevance,

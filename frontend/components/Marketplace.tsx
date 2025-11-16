@@ -10,145 +10,76 @@ import {
   Tag,
   AlertCircle,
 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Search, Star, TrendingUp, Database, BarChart3, Globe, FileText, MessageSquare, Code, Brain, Bot, ChevronDown } from 'lucide-react'
+import { getAgents, type AgentSummary } from '@/lib/api'
 
-import { Button } from '@/components/ui/button'
-import { Spinner } from '@/components/ui/spinner'
-import { AddAgentModal } from '@/components/AddAgentModal'
-import {
-  AgentRecord,
-  AgentSubmissionResponse,
-  fetchAgents,
-} from '@/lib/api'
-import { cn } from '@/lib/utils'
+type IconType = typeof Database
 
-
-function formatPrice(pricing: AgentRecord['pricing']): string {
-  const rate = pricing.rate?.toString() ?? '0'
-  return `${rate} ${pricing.currency}${pricing.rate_type ? ` • ${pricing.rate_type.replace(/_/g, ' ')}` : ''}`
-}
-
-interface AgentCardProps {
-  agent: AgentRecord
-  highlight?: boolean
-}
-
-function AgentCard({ agent, highlight }: AgentCardProps) {
-  return (
-    <div
-      className={cn(
-        'relative flex flex-col gap-4 rounded-3xl border border-white/10 bg-slate-950/70 p-6 shadow-[0_20px_60px_-40px_rgba(56,189,248,0.6)] transition hover:border-sky-500/50 hover:shadow-[0_25px_70px_-40px_rgba(56,189,248,0.8)]',
-        highlight && 'border-emerald-400/60 shadow-[0_20px_60px_-35px_rgba(16,185,129,0.8)]'
-      )}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold text-white">{agent.name}</h3>
-            <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 text-xs font-semibold uppercase tracking-[0.35em] text-emerald-300">
-              {agent.status}
-            </span>
-          </div>
-          <p className="mt-2 line-clamp-3 text-sm text-slate-300">{agent.description}</p>
-        </div>
-        {agent.logo_url && (
-          <img
-            src={agent.logo_url}
-            alt={`${agent.name} logo`}
-            className="h-12 w-12 rounded-full border border-white/20 object-cover"
-          />
-        )}
-      </div>
-
-      <div className="flex flex-wrap gap-2 text-xs">
-        {agent.categories.length
-          ? agent.categories.map((category) => (
-              <span
-                key={category}
-                className="inline-flex items-center gap-1 rounded-full border border-white/20 px-3 py-1 text-slate-200"
-              >
-                <Tag className="h-3 w-3" />
-                {category}
-              </span>
-            ))
-          : (
-            <span className="inline-flex items-center gap-1 rounded-full border border-white/20 px-3 py-1 text-slate-200">
-              <Tag className="h-3 w-3" />
-              General
-            </span>
-          )}
-      </div>
-
-      <div>
-        <h4 className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
-          Capabilities
-        </h4>
-        <ul className="mt-2 grid gap-1 text-sm text-slate-200">
-          {agent.capabilities.slice(0, 4).map((capability) => (
-            <li key={capability} className="flex items-start gap-2">
-              <span className="mt-1 h-1.5 w-1.5 rounded-full bg-sky-400" />
-              <span>{capability}</span>
-            </li>
-          ))}
-          {agent.capabilities.length > 4 && (
-            <li className="text-xs text-slate-400">
-              + {agent.capabilities.length - 4} more
-            </li>
-          )}
-        </ul>
-      </div>
-
-      <div className="grid gap-2 text-sm text-slate-300">
-        <div>
-          <span className="font-medium text-slate-100">Pricing: </span>
-          {formatPrice(agent.pricing)}
-        </div>
-        {agent.contact_email && (
-          <div className="flex items-center gap-2">
-            <Mail className="h-4 w-4 text-slate-400" />
-            <a
-              href={`mailto:${agent.contact_email}`}
-              className="text-sky-400 hover:text-sky-200"
-            >
-              {agent.contact_email}
-            </a>
-          </div>
-        )}
-        {agent.metadata_gateway_url && (
-          <div className="flex items-center gap-2">
-            <ExternalLink className="h-4 w-4 text-slate-400" />
-            <a
-              href={agent.metadata_gateway_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sky-400 hover:text-sky-200"
-            >
-              Metadata
-            </a>
-          </div>
-        )}
-      </div>
-
-      {agent.endpoint_url && (
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300">
-          <p className="font-medium text-slate-100">Endpoint</p>
-          <p className="mt-1 break-all text-[11px] text-slate-400">{agent.endpoint_url}</p>
-        </div>
-      )}
-    </div>
-  )
+const typeToIcon: Record<string, IconType> = {
+  data: Database,
+  stats: BarChart3,
+  nlp: MessageSquare,
+  market: TrendingUp,
+  report: FileText,
+  ml: Brain,
+  code: Code,
+  web: Globe,
 }
 
 export function Marketplace() {
   const queryClient = useQueryClient()
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('All')
-  const [recentAgentId, setRecentAgentId] = useState<string | null>(null)
+  const [agents, setAgents] = useState<AgentSummary[]>([])
+  const [loading, setLoading] = useState<boolean>(false)
+  const [error, setError] = useState<string | null>(null)
+  const [showAllTags, setShowAllTags] = useState<boolean>(false)
 
-  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
-    queryKey: ['agents'],
-    queryFn: fetchAgents,
-    refetchOnWindowFocus: false,
-  })
+  useEffect(() => {
+    let mounted = true
+    setLoading(true)
+    setError(null)
+    getAgents()
+      .then((data) => {
+        if (mounted) setAgents(Array.isArray(data) ? data : [])
+      })
+      .catch((e) => {
+        if (mounted) setError(e?.message || 'Failed to load agents')
+      })
+      .finally(() => {
+        if (mounted) setLoading(false)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const categories = useMemo(() => {
+    const set = new Set<string>()
+    agents.forEach((a) => a.capabilities?.forEach((c) => set.add(c)))
+    return ['All', ...Array.from(set).sort()]
+  }, [agents])
+
+  const filteredAgents = useMemo(() => {
+    return agents.filter((agent) => {
+      const matchesSearch =
+        searchQuery === '' ||
+        agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        agent.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        agent.capabilities.some((c) => c.toLowerCase().includes(searchQuery.toLowerCase()))
+
+      const matchesCategory = selectedCategory === 'All' || agent.capabilities.includes(selectedCategory)
+
+      return matchesSearch && matchesCategory
+    })
+  }, [agents, searchQuery, selectedCategory])
+
+  const handleSelectCategory = (category: string) => {
+    setSelectedCategory(category)
+    // Keep drawer open when browsing; close on selection if not "All"
+    if (category !== 'All') setShowAllTags(false)
+  }
 
   const agents = data?.agents ?? []
 
@@ -198,80 +129,143 @@ export function Marketplace() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-semibold text-white">Agent Marketplace</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Discover specialist agents ready to plug into your workflows.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost"
-            className="flex items-center gap-2 rounded-full px-4 py-2 text-sm text-slate-200 hover:text-white"
-            onClick={() => refetch()}
-            disabled={isFetching}
-          >
-            {isFetching ? <Spinner size={16} /> : <RefreshCcw className="h-4 w-4" />}
-            Refresh
-          </Button>
-          <AddAgentModal onSuccess={handleAgentCreated} />
-        </div>
+      <div>
+        <h2 className="text-2xl font-semibold text-white">Agent Marketplace</h2>
+        <p className="mt-1 text-sm text-slate-400">
+          Browse {agents.length} registered agents
+        </p>
       </div>
 
       <div className="space-y-4">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
           <input
-            className="w-full rounded-2xl border border-white/10 bg-slate-900/80 py-3 pl-12 pr-4 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-            placeholder="Search agents by name, capability, or category..."
+            type="text"
+            placeholder="Search agents by name or capability..."
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
           />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {categories.map((category) => (
-            <button
-              key={category}
-              className={cn(
-                'rounded-full border border-white/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-300 transition hover:border-sky-500/40 hover:text-white',
-                selectedCategory === category && 'border-sky-500/60 bg-sky-500/10 text-white'
-              )}
-              onClick={() => setSelectedCategory(category)}
-            >
-              {category}
-            </button>
-          ))}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setShowAllTags((v) => !v)}
+            className="inline-flex items-center gap-2 rounded-lg bg-slate-800/60 px-3 py-2 text-sm text-slate-200 ring-1 ring-white/10 transition hover:bg-slate-800"
+            aria-expanded={showAllTags}
+            aria-controls="all-tags-accordion"
+          >
+            <ChevronDown className={`h-4 w-4 transition-transform ${showAllTags ? 'rotate-180' : ''}`} />
+            All tags
+            <span className="ml-1 rounded-md bg-slate-700/70 px-1.5 py-0.5 text-xs text-slate-300">
+              {Math.max(categories.length - 1, 0)}
+            </span>
+          </button>
         </div>
+
+        {showAllTags && (
+          <div
+            id="all-tags-accordion"
+            className="rounded-xl border border-white/15 bg-slate-900/60 p-3 backdrop-blur-sm"
+          >
+            <div className="max-h-56 overflow-y-auto pr-1">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                {categories
+                  .filter((c) => c !== 'All')
+                  .map((category) => (
+                    <button
+                      key={category}
+                      onClick={() => handleSelectCategory(category)}
+                      className={`w-full truncate rounded-lg px-3 py-2 text-left text-sm transition ${
+                        selectedCategory === category
+                          ? 'bg-sky-500 text-white'
+                          : 'bg-slate-800/50 text-slate-300 hover:bg-slate-800 hover:text-white'
+                      }`}
+                      title={category}
+                    >
+                      {category}
+                    </button>
+                  ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {isLoading ? (
-        <div className="flex items-center justify-center rounded-3xl border border-white/10 bg-slate-950/70 py-16">
-          <Spinner size={28} className="text-sky-400" />
+      {loading && (
+        <div className="rounded-2xl border border-white/15 bg-slate-900/50 p-6 text-center text-slate-400">
+          Loading agents...
         </div>
-      ) : isError ? (
-        <div className="flex items-center gap-3 rounded-3xl border border-rose-500/40 bg-rose-500/10 p-6 text-sm text-rose-200">
-          <AlertCircle className="h-5 w-5" />
-          <div>
-            <p className="font-semibold">Failed to load agents.</p>
-            <p className="text-rose-100">
-              {(error as Error)?.message ?? 'Please try again later.'}
-            </p>
-          </div>
+      )}
+      {error && !loading && (
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-center text-red-300">
+          {error}
         </div>
-      ) : filteredAgents.length === 0 ? (
-        <div className="rounded-3xl border border-white/10 bg-slate-950/70 p-10 text-center text-sm text-slate-300">
-          No agents match your current filters.
-        </div>
-      ) : (
-        <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
-          {filteredAgents.map((agent) => (
-            <AgentCard
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {!loading && !error && filteredAgents.map((agent) => {
+          const mapped = agent.agent_type?.toLowerCase?.() || ''
+          const IconComponent = typeToIcon[mapped] || (Bot as IconType)
+          return (
+            <div
               key={agent.agent_id}
-              agent={agent}
-              highlight={recentAgentId === agent.agent_id}
-            />
-          ))}
+              className="group overflow-hidden rounded-2xl border border-white/15 bg-slate-900/50 backdrop-blur-sm transition hover:border-sky-400/50 hover:bg-slate-900/70"
+            >
+              <div className="p-6">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500/20 via-indigo-500/20 to-purple-600/20 text-sky-400 ring-1 ring-white/10">
+                    <IconComponent className="h-7 w-7" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-white">{agent.name}</h3>
+                    <p className="text-sm text-sky-400">{agent.agent_type}</p>
+                  </div>
+                </div>
+
+                <p className="mt-4 text-sm leading-relaxed text-slate-300">
+                  {agent.description}
+                </p>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {agent.capabilities.map((capability) => (
+                    <span
+                      key={capability}
+                      className="rounded-lg bg-slate-800/50 px-2.5 py-1 text-xs text-slate-300"
+                    >
+                      {capability}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4">
+                  <div className="flex items-center gap-4 text-sm">
+                    <div className="flex items-center gap-1.5">
+                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                      <span className="font-medium text-white">—</span>
+                    </div>
+                    <div className="text-slate-400">
+                      —
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-semibold text-white">
+                      —
+                    </div>
+                    <div className="text-xs text-slate-400">per task</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {!loading && !error && filteredAgents.length === 0 && (
+        <div className="rounded-2xl border border-white/15 bg-slate-900/50 p-12 text-center">
+          <p className="text-slate-400">No agents found matching your criteria</p>
+          <p className="mt-2 text-sm text-slate-500">
+            Try adjusting your search or filter settings
+          </p>
         </div>
       )}
     </div>

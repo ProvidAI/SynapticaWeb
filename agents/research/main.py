@@ -1,40 +1,60 @@
 """
 FastAPI server for hosting all research agents.
 
-This server runs on port 5000 and provides A2A endpoints for all research agents.
+This server runs on port 5001 and provides A2A endpoints for all research agents.
 Each agent is accessible at /agents/{agent-id}
 
 Usage:
-    uvicorn agents.research.server:app --port 5000 --reload
+    uvicorn agents.research.main:app --port 5001 --reload
 """
 
 import logging
+from typing import Any, Dict, Optional
+
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
-import uvicorn
+
+from agents.research.phase1_ideation.feasibility_analyst.agent import (
+    feasibility_analyst_agent,
+)
+from agents.research.phase1_ideation.goal_planner.agent import goal_planner_agent
 
 # Import all research agents
 from agents.research.phase1_ideation.problem_framer.agent import problem_framer_agent
-from agents.research.phase1_ideation.goal_planner.agent import goal_planner_agent
-from agents.research.phase1_ideation.feasibility_analyst.agent import feasibility_analyst_agent
-
-from agents.research.phase2_knowledge.literature_miner.agent import literature_miner_agent
-from agents.research.phase2_knowledge.knowledge_synthesizer.agent import knowledge_synthesizer_agent
-
-from agents.research.phase3_experimentation.hypothesis_designer.agent import hypothesis_designer_001_agent
-from agents.research.phase3_experimentation.code_generator.agent import code_generator_001_agent
-from agents.research.phase3_experimentation.experiment_runner.agent import experiment_runner_001_agent
-
-from agents.research.phase4_interpretation.insight_generator.agent import insight_generator_001_agent
-from agents.research.phase4_interpretation.bias_detector.agent import bias_detector_001_agent
-from agents.research.phase4_interpretation.compliance_checker.agent import compliance_checker_001_agent
-
-from agents.research.phase5_publication.paper_writer.agent import paper_writer_001_agent
-from agents.research.phase5_publication.peer_reviewer.agent import peer_reviewer_001_agent
-from agents.research.phase5_publication.reputation_manager.agent import reputation_manager_001_agent
+from agents.research.phase2_knowledge.knowledge_synthesizer.agent import (
+    knowledge_synthesizer_agent,
+)
+from agents.research.phase2_knowledge.literature_miner.agent import (
+    literature_miner_agent,
+)
+from agents.research.phase3_experimentation.code_generator.agent import (
+    code_generator_001_agent,
+)
+from agents.research.phase3_experimentation.experiment_runner.agent import (
+    experiment_runner_001_agent,
+)
+from agents.research.phase3_experimentation.hypothesis_designer.agent import (
+    hypothesis_designer_001_agent,
+)
+from agents.research.phase4_interpretation.bias_detector.agent import (
+    bias_detector_001_agent,
+)
+from agents.research.phase4_interpretation.compliance_checker.agent import (
+    compliance_checker_001_agent,
+)
+from agents.research.phase4_interpretation.insight_generator.agent import (
+    insight_generator_001_agent,
+)
 from agents.research.phase5_publication.archiver.agent import archiver_001_agent
+from agents.research.phase5_publication.paper_writer.agent import paper_writer_001_agent
+from agents.research.phase5_publication.peer_reviewer.agent import (
+    peer_reviewer_001_agent,
+)
+from agents.research.phase5_publication.reputation_manager.agent import (
+    reputation_manager_001_agent,
+)
 
 # Set up logging
 logging.basicConfig(
@@ -218,13 +238,13 @@ async def health_check():
 
 
 if __name__ == "__main__":
-    logger.info("Starting Research Agents API server on port 5000...")
+    logger.info("Starting Research Agents API server on port 5001...")
     logger.info(f"Loaded {len(AGENT_REGISTRY)} research agents")
 
     uvicorn.run(
-        "agents.research.server:app",
+        "agents.research.main:app",
         host="0.0.0.0",
-        port=5000,
+        port=5001,
         reload=True,
         log_level="info"
     )

@@ -6,15 +6,11 @@ from typing import Any, Dict, Optional
 
 from strands import tool
 
-from shared.a2a import A2AAgentClient
-from shared.openai_agent import create_openai_agent
-from shared.task_progress import update_progress
-
 from agents.executor.system_prompt import EXECUTOR_SYSTEM_PROMPT
 from agents.executor.tools.research_api_executor import (
-    list_research_agents,
     execute_research_agent,
     get_agent_metadata,
+    list_research_agents,
 )
 
 # Import system prompts
@@ -22,11 +18,14 @@ from agents.negotiator.system_prompt import NEGOTIATOR_SYSTEM_PROMPT
 
 # Import tools for each agent
 from agents.negotiator.tools import (
+    compare_agent_scores,
     create_payment_request,
     find_agents,
-    resolve_agent_by_domain,
-    compare_agent_scores,
     get_payment_status,
+    resolve_agent_by_domain,
+)
+from agents.negotiator.tools.payment_tools import (
+    authorize_payment as _authorize_payment,
 )
 from agents.verifier.system_prompt import VERIFIER_SYSTEM_PROMPT
 from agents.verifier.tools import (
@@ -43,7 +42,9 @@ from agents.verifier.tools import (
     verify_fact,
     verify_task_result,
 )
-from agents.negotiator.tools.payment_tools import authorize_payment as _authorize_payment
+from shared.a2a import A2AAgentClient
+from shared.openai_agent import create_openai_agent
+from shared.task_progress import update_progress
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +273,7 @@ async def executor_agent(
     todo_list: Optional[list] = None,
 ) -> Dict[str, Any]:
     """
-    Execute tasks using research agents from the FastAPI server (port 5000).
+    Execute tasks using research agents from the FastAPI server (port 5001).
 
     This agent:
     - Calls research agents via HTTP API (no simulation)
@@ -376,6 +377,33 @@ async def executor_agent(
             ],
         )
 
+        td_lower = (task_description or "").lower()
+        is_web_search = False
+        # Heuristic on agent domain
+        if isinstance(agent_domain, str) and any(k in agent_domain for k in ("literature", "miner", "paper", "knowledge", "search")):
+            is_web_search = True
+        # Heuristic on task description
+        if any(
+            kw in td_lower
+            for kw in (
+                "literature",
+                "paper",
+                "arxiv",
+                "semantic scholar",
+                "web search",
+                "tavily",
+                "knowledge synthesis",
+                "research papers",
+                "citations",
+            )
+        ):
+            is_web_search = True
+        if is_web_search:
+            update_progress(task_id, "web_search", "running", {
+                "message": "Searching the web for relevant papers and sources (Tavily + academic indexes)",
+                "todo_id": todo_id
+            })
+
         response = await agent.run(query)
 
         # Log executor response
@@ -389,6 +417,13 @@ async def executor_agent(
             "response": str(response)[:500],  # Truncate for progress log
             "todo_id": todo_id
         })
+
+        # Close web_search phase if opened
+        if is_web_search:
+            update_progress(task_id, "web_search", "completed", {
+                "message": "✓ Web search results retrieved",
+                "response_preview": str(response)[:300]
+            })
 
         # Mark microtask as completed
         if todo_id:

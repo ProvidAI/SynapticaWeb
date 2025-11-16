@@ -1,6 +1,6 @@
 # Research Agents Server
 
-This directory contains all research agents and a FastAPI server to host them on port 5000.
+This directory contains all research agents and a FastAPI server to host them on port 5001.
 
 ## Available Agents
 
@@ -33,5 +33,5 @@ This directory contains all research agents and a FastAPI server to host them on
 
 ```bash
 # From the project root
-uvicorn agents.research.server:app --port 5000 --reload
+uvicorn agents.research.main:app --port 5001 --reload
 ```

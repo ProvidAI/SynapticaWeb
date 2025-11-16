@@ -2,6 +2,7 @@
 """Generate ERC-8004 metadata JSON for all registered agents."""
 
 import os
+import sys
 from pathlib import Path
 
 from shared.database import SessionLocal, Agent as AgentModel
@@ -10,6 +11,13 @@ from shared.metadata import (
     build_agent_metadata_payload,
     save_agent_metadata_locally,
 )
+
+# Ensure project root is on PYTHONPATH when running this script directly
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+from shared.database import Agent as AgentModel
+from shared.database import SessionLocal
 
 # Output directory for metadata files
 METADATA_DIR = Path(__file__).parent.parent / "agent_metadata"
