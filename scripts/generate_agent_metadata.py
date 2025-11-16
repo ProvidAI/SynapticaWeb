@@ -10,10 +10,17 @@ These metadata files conform to agent metadata standards and include:
 - Version and contact info
 """
 
-import os
 import json
+import os
+import sys
 from pathlib import Path
-from shared.database import SessionLocal, Agent as AgentModel
+
+# Ensure project root is on PYTHONPATH when running this script directly
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+from shared.database import Agent as AgentModel
+from shared.database import SessionLocal
 
 # Output directory for metadata files
 METADATA_DIR = Path(__file__).parent.parent / "agent_metadata"

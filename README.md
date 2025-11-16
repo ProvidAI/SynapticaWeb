@@ -92,8 +92,8 @@ python -m uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 # Runs at http://localhost:8000
 
 # Terminal 3: Sample Research Agents
-python -m uvicorn agents.research.main:app --reload --host 0.0.0.0 --port 5000
-# Runs at http://localhost:5000
+python -m uvicorn agents.research.main:app --reload --host 0.0.0.0 --port 5001
+# Runs at http://localhost:5001
 ```
 
 Visit http://localhost:3000 to use the platform.
@@ -125,7 +125,7 @@ SynapticaWeb/
 │   ├── verifier/             # Quality assurance
 │   │   └── tools/           # Output validation, payments
 │   └── research/             # Sample research agents
-│       ├── main.py          # Research agents API (port 5000)
+│       ├── main.py          # Research agents API (port 5001)
 │       └── phase*/          # Specialized research agents
 ├── frontend/                 # Next.js web interface
 │   ├── app/                 # Pages

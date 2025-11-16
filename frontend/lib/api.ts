@@ -4,6 +4,15 @@
 
 const API_BASE_URL = '/api';
 
+export interface AgentSummary {
+  agent_id: string;
+  name: string;
+  agent_type: string;
+  description: string;
+  capabilities: string[];
+  status: string;
+}
+
 export interface CreateTaskRequest {
   description: string;
   attachments?: string[];
@@ -82,6 +91,27 @@ export async function createTask(request: CreateTaskRequest): Promise<TaskRespon
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Failed to create task' }));
     throw new Error(error.error || 'Failed to create task');
+  }
+
+  return response.json();
+}
+
+/**
+ * List available agents from registry
+ */
+export async function getAgents(): Promise<AgentSummary[]> {
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+  const response = await fetch(`${backendUrl}/api/agents`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Failed to fetch agents' }));
+    throw new Error(error.error || 'Failed to fetch agents');
   }
 
   return response.json();

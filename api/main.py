@@ -6,16 +6,18 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, BackgroundTasks
+from dotenv import load_dotenv
+from fastapi import BackgroundTasks, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from dotenv import load_dotenv
 
-from shared.database import engine, Base, SessionLocal
-from shared.database.models import A2AEvent
-from .middleware import logging_middleware
-from agents.orchestrator.agent import create_orchestrator_agent
 import shared.task_progress as task_progress
+from agents.orchestrator.agent import create_orchestrator_agent
+from shared.database import Base, SessionLocal, engine
+from shared.database.models import A2AEvent
+
+from .middleware import logging_middleware
+from .routes import agents as agents_routes
 
 # Load environment variables
 load_dotenv()
@@ -123,6 +125,9 @@ app.add_middleware(
 # Add custom middleware
 app.middleware("http")(logging_middleware)
 
+# Include routers
+app.include_router(agents_routes.router, prefix="/api/agents", tags=["agents"])
+
 
 @app.get("/")
 async def root():
@@ -182,7 +187,7 @@ def get_task_history(limit: int = 50) -> List[TaskHistoryResponse]:
     Returns tasks ordered by creation date (newest first) with their
     associated payment details representing agent microtransactions.
     """
-    from shared.database.models import Task, Payment, Agent
+    from shared.database.models import Agent, Payment, Task
 
     session = SessionLocal()
     try:
@@ -318,9 +323,10 @@ async def run_orchestrator_task(task_id: str, request: TaskRequest):
 
     try:
         # Create Task record in database for transaction history
+        from datetime import datetime
+
         from shared.database import SessionLocal
         from shared.database.models import Task
-        from datetime import datetime
 
         db = SessionLocal()
         try:
