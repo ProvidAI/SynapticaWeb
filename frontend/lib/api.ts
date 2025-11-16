@@ -3,15 +3,7 @@
  */
 
 const API_BASE_URL = '/api';
-
-export interface AgentSummary {
-  agent_id: string;
-  name: string;
-  agent_type: string;
-  description: string;
-  capabilities: string[];
-  status: string;
-}
+const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
 
 export interface CreateTaskRequest {
   description: string;
@@ -79,8 +71,7 @@ export interface TaskStatusResponse {
  * Create a new task
  */
 export async function createTask(request: CreateTaskRequest): Promise<TaskResponse> {
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
-  const response = await fetch(`${backendUrl}/execute`, {
+  const response = await fetch(`${BACKEND_BASE_URL}/execute`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -99,30 +90,16 @@ export async function createTask(request: CreateTaskRequest): Promise<TaskRespon
 /**
  * List available agents from registry
  */
-export async function getAgents(): Promise<AgentSummary[]> {
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
-  const response = await fetch(`${backendUrl}/api/agents`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    cache: 'no-store',
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Failed to fetch agents' }));
-    throw new Error(error.error || 'Failed to fetch agents');
-  }
-
-  return response.json();
+export async function getAgents(): Promise<AgentRecord[]> {
+  const data = await fetchAgents();
+  return Array.isArray(data.agents) ? data.agents : [];
 }
 
 /**
  * Get task status
  */
 export async function getTask(taskId: string): Promise<TaskStatusResponse> {
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000';
-  const response = await fetch(`${backendUrl}/api/tasks/${taskId}`, {
+  const response = await fetch(`${BACKEND_BASE_URL}/api/tasks/${taskId}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -217,6 +194,107 @@ export async function rejectPayment(paymentId: string, reason?: string): Promise
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Failed to reject payment' }));
     throw new Error(error.error || 'Failed to reject payment');
+  }
+
+  return response.json();
+}
+
+// Marketplace ----------------------------------------------------------------
+
+export interface AgentPricing {
+  rate: number;
+  currency: string;
+  rate_type: string;
+}
+
+export interface AgentRecord {
+  agent_id: string;
+  name: string;
+  agent_type?: string;
+  description?: string;
+  capabilities: string[];
+  categories: string[];
+  status: string;
+  endpoint_url?: string;
+  health_check_url?: string;
+  pricing: AgentPricing;
+  contact_email?: string;
+  logo_url?: string;
+  erc8004_metadata_uri?: string;
+  metadata_cid?: string;
+  metadata_gateway_url?: string;
+  hedera_account_id?: string;
+  created_at?: string;
+}
+
+export interface AgentsListResponse {
+  total: number;
+  agents: AgentRecord[];
+  sync_status?: string;
+  synced_at?: string;
+}
+
+export interface AgentSubmissionPayload {
+  agent_id: string;
+  name: string;
+  description: string;
+  capabilities: string[];
+  categories?: string[];
+  endpoint_url: string;
+  health_check_url?: string;
+  base_rate: number;
+  rate_type?: string;
+  hedera_account?: string;
+  logo_url?: string;
+  contact_email?: string;
+}
+
+export interface AgentSubmissionResponse extends AgentRecord {
+  metadata_gateway_url?: string;
+  metadata_cid?: string;
+  operator_checklist: string[];
+  message: string;
+}
+
+export async function fetchAgents(): Promise<AgentsListResponse> {
+  const response = await fetch(`${BACKEND_BASE_URL}/api/agents`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      (payload && (payload as any).detail) ||
+      (payload && (payload as any).error) ||
+      'Failed to fetch agents';
+    throw new Error(message);
+  }
+
+  if (!payload || !Array.isArray((payload as AgentsListResponse).agents)) {
+    return {
+      total: 0,
+      agents: [],
+      sync_status: (payload as any)?.sync_status,
+      synced_at: (payload as any)?.synced_at,
+    };
+  }
+
+  return payload as AgentsListResponse;
+}
+
+export async function submitAgent(payload: AgentSubmissionPayload): Promise<AgentSubmissionResponse> {
+  const response = await fetch(`${BACKEND_BASE_URL}/api/agents`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to submit agent' }));
+    throw new Error(error.detail || error.error || 'Failed to submit agent');
   }
 
   return response.json();

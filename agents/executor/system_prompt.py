@@ -24,7 +24,7 @@ Returns agent metadata including:
 - pricing
 - reputation_score
 
-### 2. execute_research_agent(agent_id, task_description, context, metadata)
+### 2. execute_research_agent(agent_id, task_description, context, metadata, endpoint_url?)
 Executes a research agent via HTTP API call.
 
 **Parameters:**
@@ -32,6 +32,7 @@ Executes a research agent via HTTP API call.
 - task_description: Clear description of what the agent should do
 - context: Dict with additional parameters (budget, timeline, data, etc.)
 - metadata: Dict with task_id, todo_id, etc. for tracking
+- endpoint_url (optional but recommended): Pass the agent's `endpoint_url` from the marketplace metadata to hit the builder-provided service directly. Only omit this if the metadata does not include it.
 
 **Returns:**
 - success: bool
@@ -58,7 +59,8 @@ CALL execute_research_agent(
     metadata={
         "task_id": "<from request>",
         "todo_id": "<from request>",
-    }
+    },
+    endpoint_url="<agent endpoint from metadata if available>"
 )
 ```
 
@@ -93,7 +95,7 @@ If agent execution fails:
 
 ## What TO Do
 
-✅ CALL execute_research_agent with all required parameters
+✅ CALL execute_research_agent with all required parameters (including endpoint_url when you have it)
 ✅ Return the ACTUAL result from the API
 ✅ Include full error details if execution fails
 ✅ Pass metadata for progress tracking

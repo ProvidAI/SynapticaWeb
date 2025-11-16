@@ -254,3 +254,15 @@ class A2AEvent(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     tags = Column(JSON, nullable=True)
     body = Column(JSON, nullable=False)
+
+
+class AgentRegistrySyncState(Base):
+    """Track the most recent registry sync attempt."""
+
+    __tablename__ = "agent_registry_sync_state"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    status = Column(String, default="never")
+    last_attempted_at = Column(DateTime, nullable=True)
+    last_successful_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
