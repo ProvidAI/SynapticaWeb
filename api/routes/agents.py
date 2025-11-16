@@ -26,7 +26,7 @@ from shared.metadata import (
     publish_agent_metadata,
 )
 
-router = APIRouter(prefix="/api/agents", tags=["agents"])
+router = APIRouter()
 
 logger = logging.getLogger(__name__)
 AUDIT_LOGGER = logging.getLogger("agent_registration")
