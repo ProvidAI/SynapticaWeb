@@ -5,7 +5,7 @@ import { AlertCircle } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { useTaskStore } from '@/store/taskStore'
-import { handlePaymentChallenge } from '@/lib/api'
+// import { handlePaymentChallenge } from '@/lib/api'  // TODO: Implement payment challenge handler
 
 export function PaymentModal() {
   const { paymentDetails, selectedAgent, taskId, setStatus, setPaymentDetails } = useTaskStore()
@@ -24,15 +24,19 @@ export function PaymentModal() {
       // Update status and forward payment details to backend for Hedera testnet processing
       setStatus('PAYING')
 
+      // TODO: Implement payment challenge handler
       // Backend handles Hedera transaction using its own testnet credentials
-      await handlePaymentChallenge(
-        taskId,
-        {
-          ...paymentDetails,
-          description: paymentDetails.description ?? 'ProvidAI task payment',
-        },
-        'hedera-backend'
-      )
+      // await handlePaymentChallenge(
+      //   taskId,
+      //   {
+      //     ...paymentDetails,
+      //     description: paymentDetails.description ?? 'ProvidAI task payment',
+      //   },
+      //   'hedera-backend'
+      // )
+
+      // Temporary: Just mark as paid for now
+      console.log('Payment approved for task:', taskId)
 
       // Close modal
       setPaymentDetails(null)

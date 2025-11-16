@@ -49,6 +49,26 @@ export interface TaskResult {
   data?: any;
   error?: string;
   report?: string;
+
+  // Error classification and troubleshooting
+  error_type?: 'connectivity' | 'timeout' | 'not_found' | 'http_error' | 'quality' | 'unknown';
+  root_cause?: string;
+  troubleshooting?: string[];
+  retry_possible?: boolean;
+  retryable?: boolean;
+
+  // Fallback agent details
+  fallback_attempted?: boolean;
+  fallback_succeeded?: boolean;
+  fallback_agent?: string;
+
+  // Verification details
+  quality_score?: number;
+  retry_count?: number;
+  verification_feedback?: string;
+
+  // Health check details
+  health_check_failed?: boolean;
 }
 
 export interface ProgressLog {

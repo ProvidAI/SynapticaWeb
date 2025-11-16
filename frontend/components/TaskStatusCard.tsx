@@ -5,17 +5,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { useTaskStore, TaskStatus } from '@/store/taskStore'
-import { CheckCircle2, Circle, XCircle, Loader2 } from 'lucide-react'
+import { CheckCircle2, Circle, XCircle, Loader2, Activity, AlertTriangle, RefreshCw, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Badge } from './ui/badge'
+import { HealthCheckError } from './HealthCheckError'
 
 const statusConfig: Record<TaskStatus, { label: string; progress: number; icon: React.ReactNode }> = {
   IDLE: { label: 'Ready', progress: 0, icon: <Circle className="h-4 w-4" /> },
   PLANNING: { label: 'Planning...', progress: 10, icon: <Loader2 className="h-4 w-4 animate-spin" /> },
   APPROVING_PLAN: { label: 'Approving Plan...', progress: 30, icon: <Loader2 className="h-4 w-4 animate-spin" /> },
   NEGOTIATING: { label: 'Negotiating...', progress: 40, icon: <Loader2 className="h-4 w-4 animate-spin" /> },
-  PAYING: { label: 'Processing Payment...', progress: 50, icon: <Loader2 className="h-4 w-4 animate-spin" /> },
-  EXECUTING: { label: 'Executing...', progress: 70, icon: <Loader2 className="h-4 w-4 animate-spin" /> },
-  VERIFYING: { label: 'Verifying...', progress: 90, icon: <Loader2 className="h-4 w-4 animate-spin" /> },
+  PAYING: { label: 'Payment Pending Verification...', progress: 50, icon: <Loader2 className="h-4 w-4 animate-spin" /> },
+  EXECUTING: { label: 'Executing Task...', progress: 65, icon: <Loader2 className="h-4 w-4 animate-spin" /> },
+  VERIFYING: { label: 'Verifying Quality...', progress: 85, icon: <Loader2 className="h-4 w-4 animate-spin" /> },
   COMPLETE: { label: 'Complete', progress: 100, icon: <CheckCircle2 className="h-4 w-4 text-green-500" /> },
   FAILED: { label: 'Failed', progress: 0, icon: <XCircle className="h-4 w-4 text-red-500" /> },
 }
@@ -224,6 +226,81 @@ export function TaskStatusCard() {
                       </div>
                     </div>
 
+                    {/* Health check error - show detailed troubleshooting */}
+                    {log.step.includes('health_check') && isFailed && log.data?.troubleshooting && (
+                      <div className="ml-6">
+                        <HealthCheckError
+                          message={log.data.message || 'Health check failed'}
+                          error={log.data.error}
+                          troubleshooting={log.data.troubleshooting}
+                        />
+                      </div>
+                    )}
+
+                    {/* Execution failed - show error type and troubleshooting */}
+                    {log.step.includes('execution_failed') && isFailed && (
+                      <div className="ml-6 p-3 bg-red-50 rounded border border-red-200">
+                        <div className="flex items-center gap-2 mb-2">
+                          <AlertTriangle className="w-4 h-4 text-red-600" />
+                          <h5 className="text-xs font-semibold text-red-800">Execution Error</h5>
+                          {log.data?.error_type && (
+                            <Badge variant="error" className="text-xs">
+                              {log.data.error_type}
+                            </Badge>
+                          )}
+                          {log.data?.attempt && (
+                            <Badge variant="info" className="text-xs">
+                              Attempt {log.data.attempt}/{log.data.max_retries || 3}
+                            </Badge>
+                          )}
+                        </div>
+                        {log.data?.troubleshooting && log.data.troubleshooting.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            <p className="text-xs font-semibold text-red-700">Quick fixes:</p>
+                            <ul className="text-xs text-red-600 space-y-1 pl-4">
+                              {log.data.troubleshooting.slice(0, 3).map((step: string, i: number) => (
+                                <li key={i} className="list-disc">{step}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Fallback agent transition */}
+                    {(log.step.includes('fallback_') || log.data?.fallback_agent) && (
+                      <div className="ml-6 p-3 bg-blue-50 rounded border border-blue-200">
+                        <div className="flex items-center gap-2 mb-2">
+                          <RefreshCw className={cn(
+                            "w-4 h-4 text-blue-600",
+                            isRunning && "animate-spin"
+                          )} />
+                          <h5 className="text-xs font-semibold text-blue-800">
+                            {log.step.includes('fallback_search') && 'Searching for Fallback Agent'}
+                            {log.step.includes('fallback_execution') && 'Executing with Fallback Agent'}
+                            {log.step.includes('fallback_verification') && 'Verifying Fallback Result'}
+                            {!log.step.includes('fallback_') && log.data?.fallback_agent && 'Switched to Fallback Agent'}
+                          </h5>
+                          <Badge variant={isCompleted ? 'success' : isRunning ? 'info' : 'warning'}>
+                            {isCompleted ? 'Completed' : isRunning ? 'In Progress' : 'Starting'}
+                          </Badge>
+                        </div>
+                        {log.data?.fallback_agent && (
+                          <div className="flex items-center gap-2 mt-2">
+                            <Users className="w-3.5 h-3.5 text-blue-600" />
+                            <span className="text-xs text-blue-700">
+                              Agent: <span className="font-medium">{log.data.fallback_agent}</span>
+                            </span>
+                          </div>
+                        )}
+                        {log.data?.quality_tier && (
+                          <div className="text-xs text-blue-600 mt-1">
+                            Quality Tier: <span className="font-medium capitalize">{log.data.quality_tier}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Show discovered agents if present */}
                     {log.data?.ranked_agents && (
                       <div className="ml-6 p-3 bg-white rounded border border-slate-200">
@@ -245,6 +322,79 @@ export function TaskStatusCard() {
                             </li>
                           ))}
                         </ul>
+                      </div>
+                    )}
+
+                    {/* Show verification details if present */}
+                    {log.data?.quality_score !== undefined && (
+                      <div className={cn(
+                        "ml-6 p-3 rounded border",
+                        log.data.quality_score >= 75
+                          ? "bg-green-50 border-green-200"
+                          : log.data.quality_score >= 60
+                          ? "bg-yellow-50 border-yellow-200"
+                          : "bg-red-50 border-red-200"
+                      )}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <CheckCircle2 className={cn(
+                            "w-4 h-4",
+                            log.data.quality_score >= 75
+                              ? "text-green-600"
+                              : log.data.quality_score >= 60
+                              ? "text-yellow-600"
+                              : "text-red-600"
+                          )} />
+                          <h5 className={cn(
+                            "text-xs font-semibold",
+                            log.data.quality_score >= 75
+                              ? "text-green-800"
+                              : log.data.quality_score >= 60
+                              ? "text-yellow-800"
+                              : "text-red-800"
+                          )}>
+                            Quality Verification
+                          </h5>
+                          <Badge variant={
+                            log.data.quality_score >= 75 ? 'success' :
+                            log.data.quality_score >= 60 ? 'warning' : 'error'
+                          }>
+                            {log.data.quality_score}/100
+                          </Badge>
+                          {log.data.attempt && (
+                            <Badge variant="info" className="text-xs">
+                              Retry {log.data.attempt}/{log.data.max_retries || 3}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          {log.step.includes('verification') && log.step.includes('retry') && (
+                            <div className={cn(
+                              "text-xs p-2 rounded border",
+                              log.data.quality_score >= 75
+                                ? "bg-green-100 border-green-300 text-green-800"
+                                : "bg-yellow-100 border-yellow-300 text-yellow-800"
+                            )}>
+                              {log.data.quality_score >= 75
+                                ? '✓ Quality threshold met - task approved'
+                                : `⚠ Below threshold (75%) - retrying with different approach`
+                              }
+                            </div>
+                          )}
+                          {log.data.feedback && (
+                            <div className="p-2 bg-white/50 rounded text-xs">
+                              <span className="font-semibold">Verifier Feedback: </span>
+                              <span className={cn(
+                                log.data.quality_score >= 75
+                                  ? "text-green-700"
+                                  : log.data.quality_score >= 60
+                                  ? "text-yellow-700"
+                                  : "text-red-700"
+                              )}>
+                                {log.data.feedback}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
 

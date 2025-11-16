@@ -150,6 +150,13 @@ async def execute_research_agent(
                 "success": False,
                 "agent_id": agent_domain,
                 "error": f"Agent '{agent_domain}' not found. Use list_research_agents to see available agents.",
+                "error_type": "not_found",
+                "retryable": False,
+                "troubleshooting": [
+                    "Check available agents with list_research_agents tool",
+                    "Verify agent domain spelling and format",
+                    "Register the agent if it doesn't exist"
+                ]
             }
         else:
             logger.error(f"[execute_research_agent] HTTP {e.response.status_code}: {e}")
@@ -157,6 +164,13 @@ async def execute_research_agent(
                 "success": False,
                 "agent_id": agent_domain,
                 "error": f"HTTP error {e.response.status_code}: {str(e)}",
+                "error_type": "http_error",
+                "retryable": e.response.status_code >= 500,  # Retry on 5xx, not 4xx
+                "troubleshooting": [
+                    f"HTTP {e.response.status_code} error from research agents API",
+                    "Check research agents server logs for details",
+                    "Verify API endpoint is correct"
+                ]
             }
 
     except httpx.TimeoutException:
@@ -165,6 +179,13 @@ async def execute_research_agent(
             "success": False,
             "agent_id": agent_domain,
             "error": "Agent execution timed out (120s limit). The task may be too complex.",
+            "error_type": "timeout",
+            "retryable": True,
+            "troubleshooting": [
+                "Task may be too complex for agent",
+                "Consider simplifying the task description",
+                "Check if agent is overloaded or slow"
+            ]
         }
 
     except httpx.HTTPError as e:
@@ -173,7 +194,14 @@ async def execute_research_agent(
             "success": False,
             "agent_id": agent_domain,
             "error": f"Failed to connect to research agents API: {str(e)}",
-            "suggestion": "Make sure the research agents server is running on port 5000"
+            "error_type": "connectivity",
+            "retryable": False,
+            "troubleshooting": [
+                "Start research agents server: ./start_research_agents.sh",
+                "Check if port 5000 or 5001 is available",
+                "Verify RESEARCH_API_URL environment variable",
+                "Test connectivity: curl http://localhost:5000/health"
+            ]
         }
 
     except Exception as e:

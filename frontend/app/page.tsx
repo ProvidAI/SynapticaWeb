@@ -131,8 +131,7 @@ export default function Home() {
       const response = await createTask({
         description: taskDescription,
         budget_limit: budget,
-        min_reputation_score: 0.7,
-        verification_mode: 'standard',
+        min_reputation: 0.7,
       })
 
       if (response.error) {
@@ -205,9 +204,18 @@ export default function Home() {
             setStatus('NEGOTIATING')
           } else if (lastProgress.step === 'payment') {
             setStatus('PAYING')
-          } else if (lastProgress.step === 'executor') {
+          } else if (
+            lastProgress.step === 'executor' ||
+            lastProgress.step.startsWith('microtask_') ||
+            lastProgress.step.includes('execution_') ||
+            lastProgress.step.includes('health_check')
+          ) {
             setStatus('EXECUTING')
-          } else if (lastProgress.step === 'verifier') {
+          } else if (
+            lastProgress.step === 'verifier' ||
+            lastProgress.step.includes('verification_') ||
+            lastProgress.step.includes('fallback_')
+          ) {
             setStatus('VERIFYING')
           }
         }
@@ -217,6 +225,11 @@ export default function Home() {
           setResult({
             success: true,
             data: task.result,
+            quality_score: (task.result as any)?.quality_score,
+            verification_feedback: (task.result as any)?.verification_feedback,
+            fallback_attempted: (task.result as any)?.fallback_attempted,
+            fallback_succeeded: (task.result as any)?.fallback_succeeded,
+            fallback_agent: (task.result as any)?.fallback_agent,
           })
           return
         } else if (task.status === 'failed') {
@@ -224,6 +237,16 @@ export default function Home() {
           setResult({
             success: false,
             error: task.error || 'Task execution failed',
+            error_type: (task.result as any)?.error_type,
+            root_cause: (task.result as any)?.root_cause,
+            troubleshooting: (task.result as any)?.troubleshooting,
+            retry_possible: (task.result as any)?.retry_possible,
+            retryable: (task.result as any)?.retryable,
+            health_check_failed: (task.result as any)?.health_check_failed,
+            fallback_attempted: (task.result as any)?.fallback_attempted,
+            fallback_succeeded: (task.result as any)?.fallback_succeeded,
+            quality_score: (task.result as any)?.quality_score,
+            retry_count: (task.result as any)?.retry_count,
           })
           return
         }

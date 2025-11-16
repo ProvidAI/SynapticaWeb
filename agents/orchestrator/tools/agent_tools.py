@@ -383,6 +383,68 @@ async def executor_agent(
         logger.info(f"[executor_agent] {response}")
         logger.info("[executor_agent] ===== EXECUTOR RESPONSE END =====")
 
+        # Check if response contains error indicators
+        response_str = str(response).lower()
+        error_keywords = ["failed to connect", "error", "exception", "failed", "http", "403", "404", "500"]
+        has_error = any(keyword in response_str for keyword in error_keywords)
+
+        # Also check for success indicators - if we find actual results, it's likely successful
+        success_keywords = ["research", "analysis", "findings", "results", "summary", "conclusion"]
+        has_success = any(keyword in response_str for keyword in success_keywords) and len(response_str) > 200
+
+        # If we detect errors and no clear success, treat as failure
+        if has_error and not has_success:
+            logger.error(f"[executor_agent] Detected execution failure in response")
+
+            # Classify error type based on response content
+            error_type = "quality"  # Default
+            retryable = True
+            troubleshooting = ["Review task description and requirements"]
+
+            if "failed to connect" in response_str or "connection refused" in response_str:
+                error_type = "connectivity"
+                retryable = False
+                troubleshooting = [
+                    "Start research agents server: ./start_research_agents.sh",
+                    "Check if port 5000 or 5001 is available",
+                    "Test connectivity: curl http://localhost:5000/health"
+                ]
+            elif "timed out" in response_str or "timeout" in response_str:
+                error_type = "timeout"
+                retryable = True
+                troubleshooting = [
+                    "Task may be too complex",
+                    "Consider breaking into smaller subtasks",
+                    "Check if research agents are overloaded"
+                ]
+            elif "not found" in response_str or "404" in response_str:
+                error_type = "not_found"
+                retryable = False
+                troubleshooting = [
+                    "Verify agent domain is correct",
+                    "Check available agents in registry",
+                    "Register the agent if it doesn't exist"
+                ]
+
+            # Update progress: executor failed
+            update_progress(task_id, step_name, "failed", {
+                "message": f"✗ Task execution failed - {error_type} error",
+                "response": str(response)[:500],
+                "todo_id": todo_id,
+                "error_type": error_type
+            })
+
+            return {
+                "success": False,
+                "task_id": task_id,
+                "error": "Research agent execution failed",
+                "error_type": error_type,
+                "retryable": retryable,
+                "troubleshooting": troubleshooting,
+                "response": str(response),
+                "transport": "local",
+            }
+
         # Update progress: executor completed
         update_progress(task_id, step_name, "completed", {
             "message": "✓ Task execution completed",
@@ -429,18 +491,22 @@ async def execute_microtask(
     min_reputation_score: Optional[float] = 0.2,
     execution_parameters: Optional[Dict[str, Any]] = None,
     todo_list: Optional[list] = None,
+    max_retries: int = 3,
 ) -> Dict[str, Any]:
     """
-    Execute a complete microtask: negotiation → authorization → execution.
+    Execute a complete microtask with verification and retry logic.
 
-    This is a high-level tool that handles the entire workflow for a single microtask:
+    NEW FLOW WITH VERIFIER INTEGRATION:
     1. Mark TODO as in_progress
-    2. Discover and negotiate with agent via negotiator_agent
-    3. Authorize payment
-    4. Execute task via executor_agent
-    5. Mark TODO as completed
+    2. Discover and negotiate with agent via negotiator_agent (creates payment proposal)
+    3. Execute task via executor_agent (payment NOT authorized yet, held pending verification)
+    4. Verify output quality via verifier_agent
+       - IF PASS: Authorize payment → Release payment → Mark completed
+       - IF FAIL: Retry with same agent (max 3 times)
+       - IF 3 FAILURES: Find fallback agent → Retry with new agent
+       - IF FALLBACK FAILS: Reject payment → Mark failed
 
-    Use this instead of calling negotiator/authorize/executor separately.
+    Use this instead of calling negotiator/authorize/executor/verifier separately.
 
     Args:
         task_id: Task ID
@@ -452,6 +518,7 @@ async def execute_microtask(
         min_reputation_score: Minimum reputation (default 0.2)
         execution_parameters: Additional parameters for execution
         todo_list: TODO list for status updates
+        max_retries: Maximum retry attempts with same agent (default 3)
 
     Returns:
         Dict with:
@@ -459,6 +526,9 @@ async def execute_microtask(
         - result: Execution result from agent
         - agent_used: Which agent was selected
         - todo_status: Final status of the TODO item
+        - verification_passed: bool
+        - quality_score: float (0-100)
+        - retry_count: int
     """
     import logging
     logger = logging.getLogger(__name__)
@@ -471,7 +541,7 @@ async def execute_microtask(
         await update_todo_item(task_id, todo_id, "in_progress", todo_list)
         logger.info(f"[execute_microtask] Marked {todo_id} as in_progress")
 
-        # Step 2: Discover and negotiate with agent
+        # Step 2: Discover and negotiate with agent (creates payment proposal)
         logger.info(f"[execute_microtask] Calling negotiator for {todo_id}")
         negotiator_result = await negotiator_agent(
             task_id=task_id,
@@ -495,12 +565,11 @@ async def execute_microtask(
         # Parse negotiator response to extract payment_id and agent_domain
         response_text = negotiator_result.get("response", "")
 
-        # Extract payment_id (looking for patterns like "payment_id": "..." or "Payment ID: ...")
+        # Extract payment_id and agent_domain
         import re
         payment_id_match = re.search(r'[Pp]ayment[_ ][Ii][Dd]["\s:]+([a-f0-9-]+)', response_text)
         payment_id = payment_id_match.group(1) if payment_id_match else None
 
-        # Extract agent_domain (looking for "domain": "..." or "Agent ID: ...")
         agent_domain_match = re.search(r'[Aa]gent[_ ][Ii][Dd]["\s:]+(\d+)', response_text)
         if not agent_domain_match:
             agent_domain_match = re.search(r'[Dd]omain["\s:]+([a-zA-Z0-9-]+)', response_text)
@@ -508,38 +577,468 @@ async def execute_microtask(
 
         logger.info(f"[execute_microtask] Extracted payment_id={payment_id}, agent_domain={agent_domain}")
 
-        # Step 3: Authorize payment
-        if payment_id:
-            logger.info(f"[execute_microtask] Authorizing payment {payment_id}")
-            auth_result = await authorize_payment_request(payment_id)
-            if not auth_result.get("success"):
-                logger.warning(f"[execute_microtask] Payment authorization failed, but continuing: {auth_result}")
-        else:
-            logger.warning("[execute_microtask] No payment_id found in negotiator response, skipping authorization")
+        # PHASE 1.3: Health check before retries
+        from agents.orchestrator.tools.health_checks import check_research_api_health
 
-        # Step 4: Execute task
-        logger.info(f"[execute_microtask] Calling executor for {todo_id}")
-        executor_result = await executor_agent(
-            task_id=task_id,
-            agent_domain=agent_domain or "unknown",
-            task_description=task_description,
-            execution_parameters=execution_parameters,
-            todo_id=todo_id,
-            todo_list=todo_list,
-        )
+        logger.info(f"[execute_microtask] Performing research API health check before execution")
+        api_health = await check_research_api_health()
 
-        # executor_agent already marks TODO as completed
-        logger.info(f"[execute_microtask] Completed microtask {todo_id}")
+        if not api_health.get("healthy"):
+            logger.error(f"[execute_microtask] Research API health check failed: {api_health.get('error')}")
 
-        return {
-            "success": True,
-            "task_id": task_id,
-            "todo_id": todo_id,
-            "result": executor_result.get("response", ""),
-            "agent_used": agent_domain or "unknown",
-            "todo_status": "completed",
-            "message": f"✓ Microtask '{task_name}' completed successfully"
-        }
+            # Update progress with health check failure
+            update_progress(task_id, f"health_check_{todo_id}", "failed", {
+                "message": f"✗ Research API unavailable - cannot execute task",
+                "todo_id": todo_id,
+                "error": api_health.get("error"),
+                "troubleshooting": api_health.get("troubleshooting", [])
+            })
+
+            # Reject payment if created
+            if payment_id:
+                from agents.verifier.tools.payment_tools import reject_and_refund
+                await reject_and_refund(payment_id, f"Research API unavailable: {api_health.get('error')}")
+
+            await update_todo_item(task_id, todo_id, "failed", todo_list)
+
+            return {
+                "success": False,
+                "task_id": task_id,
+                "todo_id": todo_id,
+                "error": "Research agents API is unavailable",
+                "error_type": "connectivity",
+                "root_cause": api_health.get("root_cause", api_health.get("error")),
+                "troubleshooting": api_health.get("troubleshooting", []),
+                "agent_used": agent_domain or "unknown",
+                "todo_status": "failed",
+                "retry_possible": False,
+                "fallback_attempted": False,
+                "health_check_failed": True
+            }
+
+        logger.info(f"[execute_microtask] Research API health check passed ({api_health.get('response_time', 0):.2f}s)")
+
+        # Track failed agents for fallback selection
+        failed_agents = []
+        retry_count = 0
+        executor_result = None
+        verification_passed = False
+        quality_score = 0
+        verification_feedback = ""
+
+        # Retry loop: Try with same agent up to max_retries times
+        while retry_count < max_retries and not verification_passed:
+            attempt_num = retry_count + 1
+            logger.info(f"[execute_microtask] Execution attempt {attempt_num}/{max_retries} for {todo_id}")
+
+            # Update progress
+            update_progress(task_id, f"execution_attempt_{todo_id}", "running", {
+                "message": f"Executing task (attempt {attempt_num}/{max_retries})",
+                "todo_id": todo_id,
+                "attempt": attempt_num,
+                "agent_domain": agent_domain
+            })
+
+            # Step 3: Execute task (payment NOT authorized yet)
+            logger.info(f"[execute_microtask] Calling executor for {todo_id} (attempt {attempt_num})")
+            executor_result = await executor_agent(
+                task_id=task_id,
+                agent_domain=agent_domain or "unknown",
+                task_description=task_description,
+                execution_parameters=execution_parameters,
+                todo_id=todo_id,
+                todo_list=None,  # Don't mark completed yet - wait for verification
+            )
+
+            if not executor_result.get("success"):
+                error_type = executor_result.get("error_type", "unknown")
+                is_retryable = executor_result.get("retryable", True)
+
+                logger.error(f"[execute_microtask] Executor failed for {todo_id} (attempt {attempt_num}), error_type={error_type}, retryable={is_retryable}")
+
+                # Update progress with execution failure
+                update_progress(task_id, f"execution_failed_{todo_id}", "failed", {
+                    "message": f"✗ Execution failed - {error_type} error (attempt {attempt_num}/{max_retries})",
+                    "todo_id": todo_id,
+                    "attempt": attempt_num,
+                    "error": executor_result.get("error", "Unknown error"),
+                    "error_type": error_type,
+                    "troubleshooting": executor_result.get("troubleshooting", [])
+                })
+
+                # SMART RETRY LOGIC: Fail fast on non-retryable errors
+                if not is_retryable:
+                    logger.warning(f"[execute_microtask] Non-retryable error detected ({error_type}), skipping retries")
+
+                    # Reject payment if created
+                    if payment_id:
+                        from agents.verifier.tools.payment_tools import reject_and_refund
+                        await reject_and_refund(payment_id, f"{error_type} error: {executor_result.get('error')}")
+
+                    await update_todo_item(task_id, todo_id, "failed", todo_list)
+
+                    return {
+                        "success": False,
+                        "task_id": task_id,
+                        "todo_id": todo_id,
+                        "error": f"Task failed due to {error_type} error (non-retryable)",
+                        "error_type": error_type,
+                        "root_cause": executor_result.get("error"),
+                        "troubleshooting": executor_result.get("troubleshooting", []),
+                        "agent_used": agent_domain or "unknown",
+                        "todo_status": "failed",
+                        "retry_possible": False,
+                        "fallback_attempted": False
+                    }
+
+                retry_count += 1
+                continue  # Skip verification for failed execution
+
+            # Step 4: Verify output quality ONLY if execution succeeded
+            logger.info(f"[execute_microtask] Calling verifier for {todo_id} (attempt {attempt_num})")
+
+            # Build verification criteria
+            verification_criteria = {
+                "expected_quality_score": 75,
+                "phase": "knowledge",  # Default, could be enhanced with task metadata
+                "agent_role": "research_agent",
+                "task_name": task_name,
+                "task_description": task_description
+            }
+
+            # Call verifier agent
+            verification_result = await verifier_agent(
+                task_id=task_id,
+                payment_id=payment_id or f"mock_{task_id}_{todo_id}",
+                task_result={"agent_output": executor_result.get("response", ""), "agent_domain": agent_domain},
+                verification_criteria=verification_criteria,
+                verification_mode="standard"
+            )
+
+            # Parse verification result
+            # The verifier agent returns text response, need to check for acceptance indicators
+            verification_response = str(verification_result.get("response", ""))
+            verification_response_lower = verification_response.lower()
+
+            # Check if verification itself failed (error in verifier)
+            if not verification_result.get("success"):
+                logger.error(f"[execute_microtask] Verifier call failed for {todo_id}")
+                verification_feedback = verification_result.get("error", "Verifier failed")
+                retry_count += 1
+                continue
+
+            # Check if executor output contains errors (should never verify error messages)
+            executor_output = executor_result.get("response", "").lower()
+            if "error" in executor_output or "failed" in executor_output or "exception" in executor_output:
+                logger.warning(f"[execute_microtask] Executor output contains errors, treating as verification failure")
+                quality_score = 0
+                verification_feedback = "Executor returned error response"
+
+                update_progress(task_id, f"verification_{todo_id}_retry", "failed", {
+                    "message": f"✗ Verification failed - executor returned error (attempt {attempt_num}/{max_retries})",
+                    "todo_id": todo_id,
+                    "quality_score": 0,
+                    "attempt": attempt_num,
+                    "feedback": verification_feedback
+                })
+
+                retry_count += 1
+                continue
+
+            # Check for quality acceptance
+            if "accept" in verification_response_lower or "quality score" in verification_response_lower:
+                # Try to extract quality score
+                score_match = re.search(r'quality[_ ]score[:\s]+(\d+(?:\.\d+)?)', verification_response)
+                if score_match:
+                    quality_score = float(score_match.group(1))
+                else:
+                    quality_score = 75  # Default if can't parse
+
+                # Check if passed (score >= 75 or "accept" mentioned)
+                if quality_score >= 75 or ("accept" in verification_response and "reject" not in verification_response):
+                    verification_passed = True
+                    logger.info(f"[execute_microtask] Verification PASSED for {todo_id} (score: {quality_score})")
+
+                    update_progress(task_id, f"verification_{todo_id}", "completed", {
+                        "message": f"✓ Verification passed (quality: {quality_score}/100)",
+                        "todo_id": todo_id,
+                        "quality_score": quality_score,
+                        "attempt": attempt_num
+                    })
+
+                    # Step 5: Authorize and release payment
+                    if payment_id:
+                        logger.info(f"[execute_microtask] Authorizing and releasing payment {payment_id}")
+
+                        # Authorize payment (creates escrow)
+                        auth_result = await authorize_payment_request(payment_id)
+                        if auth_result.get("success"):
+                            logger.info(f"[execute_microtask] Payment authorized: {payment_id}")
+
+                            # Release payment (since verification passed)
+                            from agents.verifier.tools.payment_tools import release_payment
+                            release_result = await release_payment(payment_id, quality_score, verification_response)
+                            logger.info(f"[execute_microtask] Payment released: {release_result}")
+                        else:
+                            logger.warning(f"[execute_microtask] Payment authorization failed: {auth_result}")
+
+                    # Mark TODO as completed
+                    await update_todo_item(task_id, todo_id, "completed", todo_list)
+
+                    return {
+                        "success": True,
+                        "task_id": task_id,
+                        "todo_id": todo_id,
+                        "result": executor_result.get("response", ""),
+                        "agent_used": agent_domain or "unknown",
+                        "todo_status": "completed",
+                        "verification_passed": True,
+                        "quality_score": quality_score,
+                        "retry_count": retry_count,
+                        "message": f"✓ Microtask '{task_name}' completed successfully (quality: {quality_score}/100)"
+                    }
+
+            # Verification failed
+            logger.warning(f"[execute_microtask] Verification FAILED for {todo_id} (attempt {attempt_num})")
+            verification_feedback = verification_response[:500]  # Store feedback
+
+            update_progress(task_id, f"verification_{todo_id}_retry", "failed", {
+                "message": f"✗ Verification failed (attempt {attempt_num}/{max_retries})",
+                "todo_id": todo_id,
+                "quality_score": quality_score,
+                "attempt": attempt_num,
+                "feedback": verification_feedback
+            })
+
+            retry_count += 1
+
+        # If we've exhausted retries with same agent, try fallback
+        if not verification_passed and retry_count >= max_retries:
+            logger.warning(f"[execute_microtask] Max retries reached for {todo_id}, trying fallback agent")
+            failed_agents.append(agent_domain)
+
+            update_progress(task_id, f"fallback_{todo_id}", "running", {
+                "message": f"Finding backup agent after {max_retries} failures",
+                "todo_id": todo_id,
+                "failed_agent": agent_domain
+            })
+
+            # Find fallback agent
+            from agents.orchestrator.tools.fallback_tools import find_fallback_agent
+
+            fallback_result = await find_fallback_agent(
+                task_id=task_id,
+                todo_id=todo_id,
+                failed_agent_id=agent_domain or "unknown",
+                capability_requirements=capability_requirements,
+                budget_limit=budget_limit,
+                min_reputation_score=min_reputation_score
+            )
+
+            if not fallback_result.get("success"):
+                logger.error(f"[execute_microtask] Fallback agent selection failed: {fallback_result.get('error')}")
+
+                # Reject original payment
+                if payment_id:
+                    from agents.verifier.tools.payment_tools import reject_and_refund
+                    await reject_and_refund(payment_id, f"Quality verification failed after {max_retries} attempts. No suitable fallback agent found. Score: {quality_score}/100. {verification_feedback}")
+
+                await update_todo_item(task_id, todo_id, "failed", todo_list)
+
+                return {
+                    "success": False,
+                    "task_id": task_id,
+                    "todo_id": todo_id,
+                    "error": f"Verification failed after {max_retries} attempts, no fallback agent available",
+                    "agent_used": agent_domain or "unknown",
+                    "todo_status": "failed",
+                    "verification_passed": False,
+                    "quality_score": quality_score,
+                    "retry_count": retry_count,
+                    "verification_feedback": verification_feedback,
+                    "fallback_attempted": True,
+                    "fallback_error": fallback_result.get("error")
+                }
+
+            # Got a fallback agent, try one more time
+            fallback_agent_data = fallback_result["fallback_agent"]
+            fallback_agent_domain = fallback_agent_data["domain"]
+            fallback_payment_id = fallback_result["payment_id"]
+
+            logger.info(f"[execute_microtask] Retrying with fallback agent: {fallback_agent_domain}")
+
+            # Mark fallback search as completed
+            update_progress(task_id, f"fallback_{todo_id}", "completed", {
+                "message": f"✓ Backup agent found: {fallback_agent_domain}",
+                "todo_id": todo_id,
+                "fallback_agent": fallback_agent_domain,
+                "quality_score": fallback_agent_data["quality_score"]
+            })
+
+            # Start fallback execution
+            update_progress(task_id, f"fallback_execution_{todo_id}", "running", {
+                "message": f"Executing with backup agent: {fallback_agent_domain}",
+                "todo_id": todo_id,
+                "fallback_agent": fallback_agent_domain,
+                "quality_score": fallback_agent_data["quality_score"]
+            })
+
+            # Execute task with fallback agent
+            fallback_executor_result = await executor_agent(
+                task_id=task_id,
+                agent_domain=fallback_agent_domain,
+                task_description=task_description,
+                execution_parameters=execution_parameters,
+                todo_id=todo_id,
+                todo_list=None,  # Don't mark completed yet
+            )
+
+            if not fallback_executor_result.get("success"):
+                logger.error(f"[execute_microtask] Fallback executor failed for {todo_id}")
+
+                # Mark fallback execution as failed
+                update_progress(task_id, f"fallback_execution_{todo_id}", "failed", {
+                    "message": f"✗ Fallback agent execution failed",
+                    "todo_id": todo_id,
+                    "fallback_agent": fallback_agent_domain,
+                    "error": fallback_executor_result.get("error", "Unknown error")
+                })
+
+                # Reject both payments
+                if payment_id:
+                    from agents.verifier.tools.payment_tools import reject_and_refund
+                    await reject_and_refund(payment_id, f"Original agent failed verification ({max_retries} attempts)")
+                if fallback_payment_id:
+                    from agents.verifier.tools.payment_tools import reject_and_refund
+                    await reject_and_refund(fallback_payment_id, "Fallback agent execution failed")
+
+                await update_todo_item(task_id, todo_id, "failed", todo_list)
+
+                return {
+                    "success": False,
+                    "task_id": task_id,
+                    "todo_id": todo_id,
+                    "error": "Fallback agent execution failed",
+                    "agent_used": agent_domain or "unknown",
+                    "fallback_agent": fallback_agent_domain,
+                    "todo_status": "failed",
+                    "verification_passed": False,
+                    "quality_score": quality_score,
+                    "retry_count": retry_count,
+                    "fallback_attempted": True
+                }
+
+            # Mark fallback execution as completed
+            update_progress(task_id, f"fallback_execution_{todo_id}", "completed", {
+                "message": f"✓ Fallback agent execution completed",
+                "todo_id": todo_id,
+                "fallback_agent": fallback_agent_domain
+            })
+
+            # Verify fallback agent output
+            logger.info(f"[execute_microtask] Verifying fallback agent output for {todo_id}")
+
+            fallback_verification_criteria = {
+                "expected_quality_score": 75,
+                "phase": "knowledge",
+                "agent_role": "research_agent",
+                "task_name": task_name,
+                "task_description": task_description
+            }
+
+            fallback_verification_result = await verifier_agent(
+                task_id=task_id,
+                payment_id=fallback_payment_id,
+                task_result={"agent_output": fallback_executor_result.get("response", ""), "agent_domain": fallback_agent_domain},
+                verification_criteria=fallback_verification_criteria,
+                verification_mode="standard"
+            )
+
+            fallback_verification_response = str(fallback_verification_result.get("response", "")).lower()
+
+            # Check fallback verification
+            fallback_quality_score = 0
+            score_match = re.search(r'quality[_ ]score[:\s]+(\d+(?:\.\d+)?)', fallback_verification_response)
+            if score_match:
+                fallback_quality_score = float(score_match.group(1))
+
+            if fallback_quality_score >= 75 or ("accept" in fallback_verification_response and "reject" not in fallback_verification_response):
+                # Fallback succeeded!
+                logger.info(f"[execute_microtask] Fallback agent PASSED verification (score: {fallback_quality_score})")
+
+                update_progress(task_id, f"fallback_verification_{todo_id}", "completed", {
+                    "message": f"✓ Fallback agent verified (quality: {fallback_quality_score}/100)",
+                    "todo_id": todo_id,
+                    "quality_score": fallback_quality_score,
+                    "fallback_agent": fallback_agent_domain
+                })
+
+                # Reject original payment
+                if payment_id:
+                    from agents.verifier.tools.payment_tools import reject_and_refund
+                    await reject_and_refund(payment_id, f"Original agent failed verification. Fallback agent used instead.")
+
+                # Authorize and release fallback payment
+                if fallback_payment_id:
+                    auth_result = await authorize_payment_request(fallback_payment_id)
+                    if auth_result.get("success"):
+                        from agents.verifier.tools.payment_tools import release_payment
+                        await release_payment(fallback_payment_id, fallback_quality_score, fallback_verification_response)
+
+                await update_todo_item(task_id, todo_id, "completed", todo_list)
+
+                return {
+                    "success": True,
+                    "task_id": task_id,
+                    "todo_id": todo_id,
+                    "result": fallback_executor_result.get("response", ""),
+                    "agent_used": agent_domain or "unknown",
+                    "fallback_agent": fallback_agent_domain,
+                    "todo_status": "completed",
+                    "verification_passed": True,
+                    "quality_score": fallback_quality_score,
+                    "retry_count": retry_count,
+                    "fallback_attempted": True,
+                    "fallback_succeeded": True,
+                    "message": f"✓ Microtask '{task_name}' completed with fallback agent (quality: {fallback_quality_score}/100)"
+                }
+            else:
+                # Fallback also failed
+                logger.error(f"[execute_microtask] Fallback agent FAILED verification (score: {fallback_quality_score})")
+
+                # Mark fallback verification as failed
+                update_progress(task_id, f"fallback_verification_{todo_id}", "failed", {
+                    "message": f"✗ Fallback agent failed verification (quality: {fallback_quality_score}/100)",
+                    "todo_id": todo_id,
+                    "quality_score": fallback_quality_score,
+                    "fallback_agent": fallback_agent_domain
+                })
+
+                # Reject both payments
+                if payment_id:
+                    from agents.verifier.tools.payment_tools import reject_and_refund
+                    await reject_and_refund(payment_id, f"Original agent failed verification ({max_retries} attempts)")
+                if fallback_payment_id:
+                    from agents.verifier.tools.payment_tools import reject_and_refund
+                    await reject_and_refund(fallback_payment_id, f"Fallback agent also failed verification (score: {fallback_quality_score}/100)")
+
+                await update_todo_item(task_id, todo_id, "failed", todo_list)
+
+                return {
+                    "success": False,
+                    "task_id": task_id,
+                    "todo_id": todo_id,
+                    "error": "Both original and fallback agents failed verification",
+                    "agent_used": agent_domain or "unknown",
+                    "fallback_agent": fallback_agent_domain,
+                    "todo_status": "failed",
+                    "verification_passed": False,
+                    "quality_score": quality_score,
+                    "fallback_quality_score": fallback_quality_score,
+                    "retry_count": retry_count,
+                    "fallback_attempted": True,
+                    "fallback_succeeded": False
+                }
 
     except Exception as e:
         logger.error(f"[execute_microtask] Failed for {todo_id}: {e}", exc_info=True)

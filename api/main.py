@@ -92,12 +92,73 @@ class A2AEventResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     # Startup: Create database tables
     Base.metadata.create_all(bind=engine)
     # Register progress callback for task updates
     task_progress.set_progress_callback(update_task_progress)
     print("Database initialized")
-    print("Orchestrator agent ready")
+
+    # PHASE 2.1: System health validation on startup
+    from agents.orchestrator.tools.health_checks import get_system_health
+
+    print("\n" + "="*70)
+    print("ProvidAI System Health Check")
+    print("="*70)
+
+    try:
+        system_health = await get_system_health()
+
+        print(f"Overall Status: {system_health['status'].upper()}")
+        print("-" * 70)
+
+        # Research API status
+        research_api = system_health["research_api"]
+        if research_api["healthy"]:
+            print(f"✓ Research API: HEALTHY ({research_api.get('response_time', 0):.2f}s)")
+        else:
+            print(f"✗ Research API: UNAVAILABLE")
+            print(f"  Error: {research_api.get('error')}")
+            print(f"  Troubleshooting:")
+            for step in research_api.get("troubleshooting", [])[:3]:
+                print(f"    - {step}")
+
+        # Agent Registry status
+        registry = system_health["registry"]
+        if registry["healthy"]:
+            agent_count = registry.get("agent_count", 0)
+            print(f"✓ Agent Registry: HEALTHY ({agent_count} agents registered)")
+
+            if agent_count < 2:
+                print(f"  ⚠️  WARNING: Only {agent_count} agent(s) available")
+                print(f"  Recommendation: Register at least 2 agents for fallback support")
+
+            if agent_count == 0:
+                print(f"  ❌ ERROR: No agents registered - system cannot execute tasks")
+                print(f"  Action Required: Register agents in identity registry")
+        else:
+            print(f"✗ Agent Registry: UNAVAILABLE")
+            print(f"  Error: {registry.get('error')}")
+
+        print("="*70)
+
+        # Log issues but don't prevent startup
+        if system_health["status"] != "healthy":
+            logger.warning(f"System started in {system_health['status']} state: {', '.join(system_health.get('issues', []))}")
+        else:
+            logger.info("System health check passed - all components healthy")
+
+    except Exception as e:
+        logger.error(f"Health check failed during startup: {e}")
+        print(f"✗ Health check failed: {e}")
+        print(f"  System will start anyway, but functionality may be limited")
+        print("="*70)
+
+    print("\nOrchestrator agent ready")
+    print("")
+
     yield
     # Shutdown
     print("Shutting down...")
@@ -149,8 +210,41 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
+    """Basic health check endpoint (simple status)."""
     return {"status": "healthy", "agent": "orchestrator"}
+
+
+@app.get("/api/health")
+async def get_api_health():
+    """
+    Comprehensive system health check endpoint.
+
+    Returns detailed health status of all system components:
+    - Research agents API
+    - Agent registry (blockchain)
+    - Available agent count
+    - Overall system status
+
+    PHASE 6.1: System Health API Endpoint
+    """
+    from agents.orchestrator.tools.health_checks import get_system_health
+
+    try:
+        system_health = await get_system_health()
+        return system_health
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Health check failed: {e}")
+
+        return {
+            "status": "error",
+            "error": str(e),
+            "research_api": {"healthy": False, "error": "Health check failed"},
+            "registry": {"healthy": False, "error": "Health check failed"},
+            "timestamp": datetime.now().isoformat()
+        }
 
 
 class SubTaskResponse(BaseModel):

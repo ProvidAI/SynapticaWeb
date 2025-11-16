@@ -9,6 +9,7 @@ from .agent_tools import (
 )
 from .task_tools import create_task, get_task, update_task_status
 from .todo_tools import create_todo_list, update_todo_item
+from .fallback_tools import find_fallback_agent
 
 __all__ = [
     # Task management tools
@@ -23,4 +24,5 @@ __all__ = [
     "authorize_payment_request",
     "executor_agent",
     "verifier_agent",
+    "find_fallback_agent",
 ]
