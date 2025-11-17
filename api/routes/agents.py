@@ -65,6 +65,7 @@ class AgentResponse(BaseModel):
     metadata_gateway_url: Optional[str] = None
     hedera_account_id: Optional[str] = None
     created_at: Optional[str] = None
+    reputation_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
 
 class AgentsListResponse(BaseModel):
@@ -213,10 +214,26 @@ def _extract_pricing(meta: Dict[str, Any]) -> AgentPricing:
     )
 
 
-def _serialize_agent(agent: Agent) -> AgentResponse:
+def _normalize_reputation_score(value: Any) -> Optional[float]:
+    """Best-effort normalization for reputation inputs."""
+    try:
+        score = float(value)
+    except (TypeError, ValueError):
+        return None
+    if score > 1:
+        score = score / 100.0
+    return max(0.0, min(1.0, score))
+
+
+def _serialize_agent(agent: Agent, reputation_score: Optional[float] = None) -> AgentResponse:
     """Convert an Agent ORM instance into API response."""
     meta: Dict[str, Any] = agent.meta or {}
     metadata_cid = meta.get("metadata_cid")
+
+    score = reputation_score
+    if score is None:
+        registry_rep = meta.get("registry_reputation") or {}
+        score = _normalize_reputation_score(registry_rep.get("reputationScore"))
 
     return AgentResponse(
         agent_id=agent.agent_id,
@@ -236,6 +253,7 @@ def _serialize_agent(agent: Agent) -> AgentResponse:
         or (f"https://gateway.pinata.cloud/ipfs/{metadata_cid}" if metadata_cid else None),
         hedera_account_id=agent.hedera_account_id,
         created_at=agent.created_at.isoformat() if agent.created_at else None,
+        reputation_score=score,
     )
 
 
@@ -263,7 +281,20 @@ async def list_agents(db: Session = Depends(get_db)) -> AgentsListResponse:
     agents = db.query(Agent).order_by(Agent.created_at.desc()).all()
     registry_agents = [agent for agent in agents if _is_registry_managed(agent)]
     source = registry_agents or agents
-    serialized = [_serialize_agent(agent) for agent in source]
+
+    reputation_map: Dict[str, float] = {}
+    agent_ids = [agent.agent_id for agent in source]
+    if agent_ids:
+        records = (
+            db.query(AgentReputation)
+            .filter(AgentReputation.agent_id.in_(agent_ids))
+            .all()
+        )
+        reputation_map = {record.agent_id: record.reputation_score for record in records}
+
+    serialized = [
+        _serialize_agent(agent, reputation_map.get(agent.agent_id)) for agent in source
+    ]
 
     return AgentsListResponse(
         total=len(serialized),
@@ -279,7 +310,13 @@ async def get_agent(agent_id: str, db: Session = Depends(get_db)) -> AgentRespon
     agent = db.query(Agent).filter(Agent.agent_id == agent_id).first()
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    return _serialize_agent(agent)
+    reputation = (
+        db.query(AgentReputation)
+        .filter(AgentReputation.agent_id == agent_id)
+        .one_or_none()
+    )
+    score = reputation.reputation_score if reputation else None
+    return _serialize_agent(agent, score)
 
 
 @router.post("/", response_model=AgentSubmissionResponse, status_code=status.HTTP_201_CREATED)
@@ -381,7 +418,7 @@ async def register_agent(
     db.commit()
     db.refresh(agent)
 
-    response = _serialize_agent(agent)
+    response = _serialize_agent(agent, reputation_score=reputation.reputation_score)
     operator_checklist = [
         "Review metadata JSON via provided gateway link.",
         "Optional: register on-chain using scripts/register_agents_with_metadata.py",

@@ -61,6 +61,7 @@ def test_register_agent_creates_record(client: TestClient):
     assert data["pricing"]["rate"] == 1.5
     assert data["metadata_cid"] == "bafy-test"
     assert data["erc8004_metadata_uri"] == "ipfs://bafy-test"
+    assert data["reputation_score"] == 0.5
     assert "operator_checklist" in data
 
     session = SessionLocal()
@@ -89,3 +90,4 @@ def test_list_agents_returns_created_agent(client: TestClient):
     assert data["total"] == 1
     assert data["agents"][0]["agent_id"] == "test-agent"
     assert data["agents"][0]["pricing"]["rate"] == 1.5
+    assert data["agents"][0]["reputation_score"] == 0.5

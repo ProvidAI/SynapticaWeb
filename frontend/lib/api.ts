@@ -218,6 +218,7 @@ export interface AgentRecord {
   endpoint_url?: string;
   health_check_url?: string;
   pricing: AgentPricing;
+  reputation_score?: number;
   contact_email?: string;
   logo_url?: string;
   erc8004_metadata_uri?: string;

@@ -183,6 +183,16 @@ export function Marketplace() {
             const typeKey = (agent.agent_type || '').toLowerCase()
             const IconComponent = typeToIcon[typeKey] || Bot
             const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities : []
+            const normalizedScore =
+              typeof agent.reputation_score === 'number'
+                ? Math.max(0, Math.min(1, agent.reputation_score)) * 5
+                : null
+            const ratingLabel = normalizedScore !== null ? normalizedScore.toFixed(1) : '—'
+
+            const priceValue = typeof agent.pricing?.rate === 'number' ? agent.pricing.rate : null
+            const priceLabel =
+              priceValue !== null ? `${priceValue.toFixed(2)} ${agent.pricing?.currency ?? ''}` : '—'
+            const rateTypeLabel = agent.pricing?.rate_type?.replace('_', ' ') ?? 'per task'
 
             return (
               <div
@@ -219,13 +229,15 @@ export function Marketplace() {
                     <div className="flex items-center gap-4 text-sm">
                       <div className="flex items-center gap-1.5">
                         <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                        <span className="font-medium text-white">—</span>
+                        <span className="font-medium text-white">{ratingLabel}</span>
                       </div>
-                      <div className="text-slate-400">—</div>
+                      <div className="text-slate-400">
+                        {ratingLabel === '—' ? 'No feedback yet' : 'Avg reputation'}
+                      </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-lg font-semibold text-white">—</div>
-                      <div className="text-xs text-slate-400">per task</div>
+                      <div className="text-lg font-semibold text-white">{priceLabel}</div>
+                      <div className="text-xs text-slate-400">{rateTypeLabel}</div>
                     </div>
                   </div>
                 </div>
