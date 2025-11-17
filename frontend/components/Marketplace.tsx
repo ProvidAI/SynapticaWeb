@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart3,
@@ -17,6 +17,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 
+import { AddAgentModal } from '@/components/AddAgentModal'
 import { getAgents, type AgentRecord } from '@/lib/api'
 
 type IconType = typeof Database
@@ -49,11 +50,17 @@ export function Marketplace() {
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [showAllTags, setShowAllTags] = useState(false)
 
-  const { data, isLoading, isError, error } = useQuery<AgentRecord[], Error>({
+  const { data, isLoading, isError, error, refetch } = useQuery<AgentRecord[], Error>({
     queryKey: ['agents'],
     queryFn: getAgents,
     staleTime: 60_000,
   })
+
+  const handleAgentAdded = useCallback(() => {
+    void refetch()
+    setSearchQuery('')
+    setSelectedCategory('All')
+  }, [refetch])
 
   const agents = data ?? []
   const errorMessage = isError ? error?.message ?? 'Failed to load agents' : null
@@ -104,9 +111,12 @@ export function Marketplace() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold text-white">Agent Marketplace</h2>
-        <p className="mt-1 text-sm text-slate-400">Browse {agents.length} registered agents</p>
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold text-white">Agent Marketplace</h2>
+          <p className="mt-1 text-sm text-slate-400">Browse {agents.length} registered agents</p>
+        </div>
+        <AddAgentModal onSuccess={handleAgentAdded} />
       </div>
 
       <div className="space-y-4">
