@@ -21,9 +21,20 @@ Usage:
 import os
 import sys
 import json
+import hashlib
 from pathlib import Path
 from dotenv import load_dotenv
 from web3 import Web3
+from eth_account import Account
+from hiero_sdk_python import (
+    Client as HederaClient,
+    Network as HederaNetwork,
+    AccountId as HederaAccountId,
+    PrivateKey as HederaPrivateKey,
+    EthereumTransaction,
+    Hbar,
+)
+from hiero_sdk_python.response_code import ResponseCode
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -36,7 +47,11 @@ load_dotenv(override=True)
 # -------- CONFIG --------
 RPC_URL = os.getenv("HEDERA_RPC_URL", "https://testnet.hashio.io/api")
 PRIVATE_KEY = os.getenv("HEDERA_PRIVATE_KEY")
-CONTRACT_ADDRESS = os.getenv("IDENTITY_REGISTRY_ADDRESS")
+HEDERA_ACCOUNT_ID = os.getenv("HEDERA_ACCOUNT_ID")
+HEDERA_NETWORK = os.getenv("HEDERA_NETWORK", "testnet")
+MAX_GAS_ALLOWANCE_HBAR = float(os.getenv("AGENT_METADATA_MAX_GAS_HBAR", "5.0"))
+PRIORITY_FEE_GWEI = float(os.getenv("AGENT_METADATA_PRIORITY_FEE_GWEI", "2.0"))
+CONTRACT_ADDRESS = os.getenv("IDENTITY_REGISTRY_ADDRESS") or os.getenv("IDENTITY_CONTRACT_ADDRESS")
 
 # Metadata URL base (update this based on your hosting)
 # Options:
@@ -50,6 +65,10 @@ METADATA_BASE_URL = os.getenv("METADATA_BASE_URL", "https://providai.io/metadata
 # -------- VALIDATION --------
 if not PRIVATE_KEY or PRIVATE_KEY == "your_hedera_private_key_here":
     print("❌ Error: HEDERA_PRIVATE_KEY not set in .env file")
+    sys.exit(1)
+
+if not HEDERA_ACCOUNT_ID:
+    print("❌ Error: HEDERA_ACCOUNT_ID not set in .env file")
     sys.exit(1)
 
 if not CONTRACT_ADDRESS:
@@ -76,6 +95,22 @@ print(f"📍 Wallet address: {wallet_address}")
 balance = web3.eth.get_balance(wallet_address)
 balance_hbar = web3.from_wei(balance, 'ether')
 print(f"💰 Balance: {balance_hbar} HBAR")
+
+def _load_hedera_private_key(value: str) -> HederaPrivateKey:
+    raw = value.strip()
+    if raw.startswith("0x"):
+        raw = raw[2:]
+    if len(raw) == 64:
+        return HederaPrivateKey.from_bytes_ecdsa(bytes.fromhex(raw))
+    return HederaPrivateKey.from_string(raw)
+
+
+hedera_network_name = HEDERA_NETWORK if HEDERA_NETWORK in {"mainnet", "testnet", "previewnet"} else "testnet"
+hedera_client = HederaClient(HederaNetwork(hedera_network_name))
+hedera_client.set_operator(
+    HederaAccountId.from_string(HEDERA_ACCOUNT_ID),
+    _load_hedera_private_key(PRIVATE_KEY),
+)
 
 # Load contract ABI
 contract_json_path = Path(__file__).parent.parent / "shared/contracts/IdentityRegistry.sol/IdentityRegistry.json"
@@ -107,7 +142,74 @@ except AttributeError:
 
 # -------- HELPER FUNCTIONS --------
 
-def register_agent_on_chain(domain: str, agent_address: str = None, metadata_uri: str = None):
+_NONCE_CACHE: dict[str, int] = {}
+
+
+def _get_next_nonce(address: str) -> int:
+    try:
+        network_nonce = web3.eth.get_transaction_count(address)
+    except Exception:
+        network_nonce = 0
+    cached = _NONCE_CACHE.get(address)
+    next_nonce = network_nonce if cached is None else max(network_nonce, cached)
+    _NONCE_CACHE[address] = next_nonce + 1
+    return next_nonce
+
+
+def _derive_agent_account(domain: str):
+    """Derive the deterministic agent wallet from its domain."""
+    seed = hashlib.sha256(domain.encode()).hexdigest()
+    return Account.from_key("0x" + seed)
+
+
+def _ensure_agent_balance(agent_address: str) -> bool:
+    """Fund agent wallet with a small amount of HBAR if needed."""
+    min_balance = web3.to_wei(0.002, "ether")
+
+    try:
+        current_balance = web3.eth.get_balance(agent_address)
+    except Exception as exc:
+        print(f"   ⚠️  Could not fetch balance for {agent_address}: {exc}")
+        return True
+
+    if current_balance >= min_balance:
+        return True
+
+    print(
+        f"   ⚠️  Web3 RPC reports {web3.from_wei(current_balance, 'ether')} HBAR for {agent_address}. "
+        "Ensure the agent wallet is funded before proceeding."
+    )
+    return True
+
+
+def _submit_ethereum_transaction(raw_tx: bytes) -> bool:
+    """Submit a signed Ethereum transaction via the Hedera EthereumTransaction wrapper."""
+    try:
+        tx = EthereumTransaction()
+        tx.set_ethereum_data(raw_tx)
+        tx.set_max_gas_allowed(Hbar(MAX_GAS_ALLOWANCE_HBAR).to_tinybars())
+
+        response = tx.execute(hedera_client)
+        receipt = response.get_receipt(hedera_client) if hasattr(response, "get_receipt") else response
+        status = getattr(receipt, "status", None)
+        status_name = getattr(status, "name", None)
+        if status_name is None and isinstance(status, int):
+            try:
+                status_name = ResponseCode(status).name
+            except ValueError:
+                status_name = str(status)
+
+        if status_name != "SUCCESS":
+            print(f"   ❌ Hedera execution status: {status_name}")
+            return False
+
+        return True
+    except Exception as exc:  # noqa: BLE001
+        print(f"   ❌ Hedera EthereumTransaction failed: {exc}")
+        return False
+
+
+def register_agent_on_chain(domain: str, agent_address: str = None, metadata_uri: str = None, registry_agent_id: int | None = None):
     """
     Register an agent on the NEW identity registry with metadata.
 
@@ -119,34 +221,49 @@ def register_agent_on_chain(domain: str, agent_address: str = None, metadata_uri
     Returns:
         Transaction receipt or None if failed
     """
+    metadata_uri = metadata_uri or f"{METADATA_BASE_URL.rstrip('/')}/{domain}.json"
+    metadata_uri = metadata_uri.strip()
+
+    existing_agent_id = registry_agent_id
+    existing_metadata_uri = None
+    existing_agent_address = None
+
+    if existing_agent_id:
+        try:
+            on_chain_agent = identity_registry.functions.getAgent(existing_agent_id).call()
+            if len(on_chain_agent) > 2:
+                existing_agent_address = on_chain_agent[2]
+            if len(on_chain_agent) > 3:
+                existing_metadata_uri = on_chain_agent[3]
+        except Exception as exc:
+            print(f"   ⚠️  Could not load existing agent {existing_agent_id}: {exc}")
+    else:
+        try:
+            existing = identity_registry.functions.resolveByDomain(domain).call()
+            if existing and existing[0] > 0:
+                existing_agent_id = existing[0]
+                if len(existing) > 2:
+                    existing_agent_address = existing[2]
+                if len(existing) > 3:
+                    existing_metadata_uri = existing[3]
+        except Exception:
+            existing_agent_id = None
+
+    if existing_agent_id:
+        if (existing_metadata_uri or "").strip() == metadata_uri:
+            print(f"   ✅ Agent '{domain}' metadata already up to date (ID: {existing_agent_id})")
+            return {"status": "already_registered", "agent_id": existing_agent_id}
+
+        print(f"   🔁 Updating metadata for agent ID {existing_agent_id}")
+        return _update_agent_metadata(existing_agent_id, metadata_uri, domain, existing_agent_address)
+
     if agent_address is None:
-        # Generate unique deterministic address for each agent domain
-        from eth_account import Account
-        import hashlib
-
-        # Hash the domain to create a seed
-        seed = hashlib.sha256(domain.encode()).hexdigest()
-        # Generate account from seed (deterministic and unique per domain)
-        agent_account = Account.from_key('0x' + seed)
-        agent_address = agent_account.address
-
-    if metadata_uri is None:
-        # Default metadata URI based on domain
-        metadata_uri = f"{METADATA_BASE_URL}/{domain}.json"
+        agent_address = _derive_agent_account(domain).address
 
     print(f"   🔐 Agent address: {agent_address}")
     print(f"   📄 Metadata URI: {metadata_uri}")
 
     try:
-        # Check if agent already exists by domain
-        try:
-            existing = identity_registry.functions.resolveByDomain(domain).call()
-            if existing[0] > 0:  # agent_id > 0 means exists
-                print(f"   ⚠️  Agent '{domain}' already registered (ID: {existing[0]})")
-                return {"status": "already_registered", "agent_id": existing[0]}
-        except Exception:
-            pass  # Agent doesn't exist, continue with registration
-
         # Get the required registration fee from contract
         try:
             required_fee = identity_registry.functions.REGISTRATION_FEE().call()
@@ -191,7 +308,18 @@ def register_agent_on_chain(domain: str, agent_address: str = None, metadata_uri
 
         if receipt['status'] == 1:
             print(f"   ✅ Registered successfully!")
-            return receipt
+            new_agent_id = None
+            try:
+                resolved = identity_registry.functions.resolveByDomain(domain).call()
+                if resolved and resolved[0] > 0:
+                    new_agent_id = resolved[0]
+            except Exception:
+                pass
+            return {
+                "status": "registered",
+                "agent_id": new_agent_id,
+                "tx": tx_hash.hex(),
+            }
         else:
             print(f"   ❌ Transaction failed")
             print(f"   Gas used: {receipt.get('gasUsed', 'N/A')}")
@@ -199,6 +327,65 @@ def register_agent_on_chain(domain: str, agent_address: str = None, metadata_uri
 
     except Exception as e:
         print(f"   ❌ Error: {e}")
+        return None
+
+
+def _update_agent_metadata(agent_id: int, metadata_uri: str, domain: str, agent_address: str | None):
+    """Update metadata URI for an already registered agent."""
+    derived_account = _derive_agent_account(domain)
+
+    if agent_address and derived_account.address.lower() != agent_address.lower():
+        print(
+            f"   ❌ Cannot update metadata for agent ID {agent_id}; "
+            "derived key does not match on-chain address."
+        )
+        return None
+
+    if not _ensure_agent_balance(derived_account.address):
+        print("   ❌ Unable to fund agent wallet for metadata update.")
+        return None
+
+    try:
+        gas_estimate = identity_registry.functions.updateMetadata(agent_id, metadata_uri).estimate_gas(
+            {"from": derived_account.address}
+        )
+        print(f"   📊 Estimated gas (update): {gas_estimate}")
+    except Exception as exc:
+        print(f"   ⚠️  Gas estimation for metadata update failed: {exc}")
+        return None
+
+    try:
+        gas_limit = min(400000, gas_estimate + 50000)
+        base_fee = web3.eth.gas_price
+        priority_fee = web3.to_wei(PRIORITY_FEE_GWEI, "gwei")
+        max_fee = base_fee + priority_fee
+
+        tx = identity_registry.functions.updateMetadata(agent_id, metadata_uri).build_transaction(
+            {
+                "chainId": web3.eth.chain_id,
+                "nonce": _get_next_nonce(derived_account.address),
+                "gas": gas_limit,
+                "maxFeePerGas": max_fee,
+                "maxPriorityFeePerGas": priority_fee,
+                "type": 2,
+                "value": 0,
+            }
+        )
+        signed_tx = web3.eth.account.sign_transaction(tx, derived_account.key)
+        tx_hash = signed_tx.hash.hex()
+
+        if not _submit_ethereum_transaction(signed_tx.raw_transaction):
+            print("   ❌ Metadata update transaction failed")
+            return None
+
+        print(f"   ✅ Metadata updated on-chain for agent ID {agent_id} (tx {tx_hash})")
+        return {
+            "status": "metadata_updated",
+            "agent_id": agent_id,
+            "tx": tx_hash,
+        }
+    except Exception as exc:
+        print(f"   ❌ Error updating metadata: {exc}")
         return None
 
 
@@ -301,6 +488,7 @@ def register_all_agents():
         print("-"*80)
 
         registered = 0
+        metadata_updates = 0
         already_registered = 0
         failed = 0
 
@@ -310,15 +498,33 @@ def register_all_agents():
             # Use agent_id as domain (unique identifier)
             domain = agent.agent_id
 
-            # Metadata URI
-            metadata_uri = f"{METADATA_BASE_URL}/{domain}.json"
+            meta = agent.meta or {}
+            metadata_uri = (
+                agent.erc8004_metadata_uri
+                or meta.get("metadata_gateway_url")
+                or meta.get("metadata_public_url")
+                or f"{METADATA_BASE_URL.rstrip('/')}/{domain}.json"
+            )
+
+            registry_agent_id = meta.get("registry_agent_id")
+            try:
+                registry_agent_id = int(registry_agent_id) if registry_agent_id is not None else None
+            except (TypeError, ValueError):
+                registry_agent_id = None
 
             # Don't pass agent_address - let it generate unique address
-            result = register_agent_on_chain(domain, metadata_uri=metadata_uri)
+            result = register_agent_on_chain(
+                domain,
+                metadata_uri=metadata_uri,
+                registry_agent_id=registry_agent_id,
+            )
 
             if result:
-                if isinstance(result, dict) and result.get("status") == "already_registered":
+                status = result.get("status") if isinstance(result, dict) else None
+                if status == "already_registered":
                     already_registered += 1
+                elif status == "metadata_updated":
+                    metadata_updates += 1
                 else:
                     registered += 1
             else:
@@ -329,6 +535,7 @@ def register_all_agents():
         print("REGISTRATION COMPLETE")
         print("="*80)
         print(f"\n✅ Newly registered: {registered}")
+        print(f"🔁 Metadata updated: {metadata_updates}")
         print(f"⚠️  Already registered: {already_registered}")
         print(f"❌ Failed: {failed}")
 

@@ -90,14 +90,20 @@ def _resolve_chain_id(meta: dict, agent_id: str) -> str:
 
 
 def _resolve_registry_address(meta: dict, agent_id: str) -> str:
-    raw_address = meta.get("registry_address") or _get_first_env(
-        "IDENTITY_CONTRACT_ADDRESS",
-        "IDENTITY_REGISTRY_ADDRESS",
-        "ERC8004_REGISTRY_ADDRESS",
+    raw_address = (
+        meta.get("registry_contract_address")
+        or meta.get("identity_contract_address")
+        or meta.get("identity_registry_address")
+        or meta.get("registry_address")
+        or _get_first_env(
+            "IDENTITY_CONTRACT_ADDRESS",
+            "IDENTITY_REGISTRY_ADDRESS",
+            "ERC8004_REGISTRY_ADDRESS",
+        )
     )
     if not raw_address:
         raise ValueError(
-            f"Agent '{agent_id}' does not know the identity registry address. Set registry_address in metadata or configure IDENTITY_CONTRACT_ADDRESS / IDENTITY_REGISTRY_ADDRESS."
+            f"Agent '{agent_id}' does not know the identity registry address. Configure IDENTITY_CONTRACT_ADDRESS / IDENTITY_REGISTRY_ADDRESS."
         )
     address = raw_address.strip().lower()
     if not address.startswith("0x"):
