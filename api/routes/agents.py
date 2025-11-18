@@ -5,14 +5,15 @@ from __future__ import annotations
 import logging
 import os
 import re
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from shared.database import Agent, AgentReputation, get_db
+from shared.database import Agent, AgentReputation, SessionLocal, get_db
 from shared.registry_sync import (
     RegistrySyncError,
     ensure_registry_cache,
@@ -24,6 +25,11 @@ from shared.metadata import (
     PinataUploadError,
     build_agent_metadata_payload,
     publish_agent_metadata,
+)
+from shared.registry import (
+    AgentRegistryConfigError,
+    AgentRegistryRegistrationError,
+    get_registry_client,
 )
 
 router = APIRouter()
@@ -66,6 +72,11 @@ class AgentResponse(BaseModel):
     hedera_account_id: Optional[str] = None
     created_at: Optional[str] = None
     reputation_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    registry_status: Optional[str] = None
+    registry_agent_id: Optional[int] = None
+    registry_tx_hash: Optional[str] = None
+    registry_last_error: Optional[str] = None
+    registry_updated_at: Optional[str] = None
 
 
 class AgentsListResponse(BaseModel):
@@ -235,6 +246,8 @@ def _serialize_agent(agent: Agent, reputation_score: Optional[float] = None) -> 
         registry_rep = meta.get("registry_reputation") or {}
         score = _normalize_reputation_score(registry_rep.get("reputationScore"))
 
+    registry_meta: Dict[str, Any] = meta.get("registry") or {}
+
     return AgentResponse(
         agent_id=agent.agent_id,
         name=agent.name,
@@ -254,7 +267,94 @@ def _serialize_agent(agent: Agent, reputation_score: Optional[float] = None) -> 
         hedera_account_id=agent.hedera_account_id,
         created_at=agent.created_at.isoformat() if agent.created_at else None,
         reputation_score=score,
+        registry_status=registry_meta.get("status"),
+        registry_agent_id=registry_meta.get("agent_id"),
+        registry_tx_hash=registry_meta.get("tx_hash"),
+        registry_last_error=registry_meta.get("last_error"),
+        registry_updated_at=registry_meta.get("updated_at"),
     )
+
+
+def _set_registry_status(
+    agent: Agent,
+    *,
+    status: str,
+    agent_id: Optional[int] = None,
+    tx_hash: Optional[str] = None,
+    metadata_uri: Optional[str] = None,
+    error: Optional[str] = None,
+) -> None:
+    """Persist registry status metadata on the agent."""
+
+    meta: Dict[str, Any] = agent.meta or {}
+    registry_meta: Dict[str, Any] = meta.get("registry") or {}
+    registry_meta["status"] = status
+    registry_meta["updated_at"] = datetime.utcnow().isoformat()
+    if agent_id is not None:
+        registry_meta["agent_id"] = agent_id
+    if tx_hash is not None:
+        registry_meta["tx_hash"] = tx_hash
+    if metadata_uri is not None:
+        registry_meta["metadata_uri"] = metadata_uri
+    registry_meta["last_error"] = error
+    meta["registry"] = registry_meta
+    agent.meta = meta
+
+
+def _trigger_registry_registration(agent_id: str) -> None:
+    """Background task entrypoint for on-chain registration."""
+
+    db = SessionLocal()
+    try:
+        agent = db.query(Agent).filter(Agent.agent_id == agent_id).one_or_none()
+        if not agent:
+            logger.warning("Registry trigger skipped; agent %s not found", agent_id)
+            return
+
+        meta: Dict[str, Any] = agent.meta or {}
+        metadata_uri = agent.erc8004_metadata_uri or meta.get("metadata_gateway_url")
+        if not metadata_uri:
+            _set_registry_status(
+                agent,
+                status="failed",
+                error="Missing metadata URI for on-chain registration",
+            )
+            db.commit()
+            return
+
+        registry_meta = meta.get("registry") or {}
+        registry_agent_id = registry_meta.get("agent_id")
+        try:
+            registry_agent_id = int(registry_agent_id) if registry_agent_id is not None else None
+        except (TypeError, ValueError):
+            registry_agent_id = None
+
+        try:
+            client = get_registry_client()
+            result = client.register_agent(
+                agent.agent_id,
+                metadata_uri=metadata_uri,
+                registry_agent_id=registry_agent_id,
+            )
+            _set_registry_status(
+                agent,
+                status=result.status,
+                agent_id=result.agent_id,
+                tx_hash=result.tx_hash,
+                metadata_uri=result.metadata_uri,
+                error=None,
+            )
+            db.commit()
+        except (AgentRegistryConfigError, AgentRegistryRegistrationError) as exc:
+            logger.warning("Agent %s registry registration failed: %s", agent_id, exc)
+            _set_registry_status(agent, status="failed", error=str(exc))
+            db.commit()
+        except Exception:  # noqa: BLE001
+            logger.exception("Unexpected error while registering agent %s", agent_id)
+            _set_registry_status(agent, status="failed", error="Unexpected error; see API logs")
+            db.commit()
+    finally:
+        db.close()
 
 
 def _is_registry_managed(agent: Agent) -> bool:
@@ -322,6 +422,7 @@ async def get_agent(agent_id: str, db: Session = Depends(get_db)) -> AgentRespon
 @router.post("/", response_model=AgentSubmissionResponse, status_code=status.HTTP_201_CREATED)
 async def register_agent(
     payload: AgentSubmissionRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     x_admin_token: Optional[str] = Header(default=None, alias="X-Admin-Token"),
 ) -> AgentSubmissionResponse:
@@ -415,13 +516,22 @@ async def register_agent(
     meta["metadata_gateway_url"] = upload_result.gateway_url
     agent.meta = meta
 
+    _set_registry_status(
+        agent,
+        status="pending",
+        metadata_uri=agent.erc8004_metadata_uri,
+        error=None,
+    )
+
     db.commit()
     db.refresh(agent)
+
+    background_tasks.add_task(_trigger_registry_registration, agent.agent_id)
 
     response = _serialize_agent(agent, reputation_score=reputation.reputation_score)
     operator_checklist = [
         "Review metadata JSON via provided gateway link.",
-        "Optional: register on-chain using scripts/register_agents_with_metadata.py",
+        "Registry registration is running in the background; monitor `registry_status`/`registry_last_error`.",
         "Verify endpoint responds to orchestrator/executor probes.",
     ]
 

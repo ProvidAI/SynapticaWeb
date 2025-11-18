@@ -24,6 +24,7 @@ def client(monkeypatch):
 
     monkeypatch.setattr("api.routes.agents.ensure_registry_cache", lambda force=False: None)
     monkeypatch.setattr("api.routes.agents.get_registry_sync_status", lambda: ("test", None))
+    monkeypatch.setattr("api.routes.agents._trigger_registry_registration", lambda agent_id: None)
 
     mock_publish = AsyncMock(
         return_value=PinataUploadResult(
@@ -62,6 +63,9 @@ def test_register_agent_creates_record(client: TestClient):
     assert data["metadata_cid"] == "bafy-test"
     assert data["erc8004_metadata_uri"] == "ipfs://bafy-test"
     assert data["reputation_score"] == 0.5
+    assert data["registry_status"] == "pending"
+    assert data["registry_agent_id"] is None
+    assert data["registry_last_error"] is None
     assert "operator_checklist" in data
 
     session = SessionLocal()
@@ -69,6 +73,7 @@ def test_register_agent_creates_record(client: TestClient):
         agent = session.query(AgentModel).filter(AgentModel.agent_id == "test-agent").one()
         assert agent.meta["metadata_cid"] == "bafy-test"
         assert agent.erc8004_metadata_uri == "ipfs://bafy-test"
+        assert agent.meta["registry"]["status"] == "pending"
     finally:
         session.close()
 
@@ -91,3 +96,4 @@ def test_list_agents_returns_created_agent(client: TestClient):
     assert data["agents"][0]["agent_id"] == "test-agent"
     assert data["agents"][0]["pricing"]["rate"] == 1.5
     assert data["agents"][0]["reputation_score"] == 0.5
+    assert data["agents"][0]["registry_status"] == "pending"
