@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart3,
@@ -17,6 +17,7 @@ import {
   TrendingUp,
 } from 'lucide-react'
 
+import { AddAgentModal } from '@/components/AddAgentModal'
 import { getAgents, type AgentRecord } from '@/lib/api'
 
 type IconType = typeof Database
@@ -49,11 +50,17 @@ export function Marketplace() {
   const [selectedCategory, setSelectedCategory] = useState('All')
   const [showAllTags, setShowAllTags] = useState(false)
 
-  const { data, isLoading, isError, error } = useQuery<AgentRecord[], Error>({
+  const { data, isLoading, isError, error, refetch } = useQuery<AgentRecord[], Error>({
     queryKey: ['agents'],
     queryFn: getAgents,
     staleTime: 60_000,
   })
+
+  const handleAgentAdded = useCallback(() => {
+    void refetch()
+    setSearchQuery('')
+    setSelectedCategory('All')
+  }, [refetch])
 
   const agents = data ?? []
   const errorMessage = isError ? error?.message ?? 'Failed to load agents' : null
@@ -104,9 +111,12 @@ export function Marketplace() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-semibold text-white">Agent Marketplace</h2>
-        <p className="mt-1 text-sm text-slate-400">Browse {agents.length} registered agents</p>
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-2xl font-semibold text-white">Agent Marketplace</h2>
+          <p className="mt-1 text-sm text-slate-400">Browse {agents.length} registered agents</p>
+        </div>
+        <AddAgentModal onSuccess={handleAgentAdded} />
       </div>
 
       <div className="space-y-4">
@@ -183,6 +193,16 @@ export function Marketplace() {
             const typeKey = (agent.agent_type || '').toLowerCase()
             const IconComponent = typeToIcon[typeKey] || Bot
             const capabilities = Array.isArray(agent.capabilities) ? agent.capabilities : []
+            const normalizedScore =
+              typeof agent.reputation_score === 'number'
+                ? Math.max(0, Math.min(1, agent.reputation_score)) * 5
+                : null
+            const ratingLabel = normalizedScore !== null ? normalizedScore.toFixed(1) : '—'
+
+            const priceValue = typeof agent.pricing?.rate === 'number' ? agent.pricing.rate : null
+            const priceLabel =
+              priceValue !== null ? `${priceValue.toFixed(2)} ${agent.pricing?.currency ?? ''}` : '—'
+            const rateTypeLabel = agent.pricing?.rate_type?.replace('_', ' ') ?? 'per task'
 
             return (
               <div
@@ -219,13 +239,15 @@ export function Marketplace() {
                     <div className="flex items-center gap-4 text-sm">
                       <div className="flex items-center gap-1.5">
                         <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                        <span className="font-medium text-white">—</span>
+                        <span className="font-medium text-white">{ratingLabel}</span>
                       </div>
-                      <div className="text-slate-400">—</div>
+                      <div className="text-slate-400">
+                        {ratingLabel === '—' ? 'No feedback yet' : 'Avg reputation'}
+                      </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-lg font-semibold text-white">—</div>
-                      <div className="text-xs text-slate-400">per task</div>
+                      <div className="text-lg font-semibold text-white">{priceLabel}</div>
+                      <div className="text-xs text-slate-400">{rateTypeLabel}</div>
                     </div>
                   </div>
                 </div>
