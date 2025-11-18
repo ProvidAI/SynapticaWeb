@@ -1,7 +1,9 @@
 """Agent tools - Negotiator, Executor, and Verifier as callable tools."""
 
+import json
 import logging
 import os
+import re
 from typing import Any, Dict, Optional
 
 from strands import tool
@@ -42,6 +44,10 @@ from agents.verifier.tools import (
     verify_fact,
     verify_task_result,
 )
+from agents.verifier.tools.reputation_tools import (
+    decrease_agent_reputation,
+    increase_agent_reputation,
+)
 from shared.a2a import A2AAgentClient
 from shared.openai_agent import create_openai_agent
 from shared.task_progress import update_progress
@@ -49,6 +55,58 @@ from shared.task_progress import update_progress
 logger = logging.getLogger(__name__)
 
 _A2A_CLIENTS: Dict[str, A2AAgentClient] = {}
+
+
+def _extract_structured_verification(raw_response: Any) -> Dict[str, Any]:
+    """Attempt to parse verifier output into a structured dict."""
+
+    if raw_response is None:
+        return {}
+
+    if isinstance(raw_response, dict):
+        return raw_response
+
+    if isinstance(raw_response, list):
+        return {"report": raw_response}
+
+    text = str(raw_response).strip()
+    if not text:
+        return {}
+
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            snippet = match.group(0)
+            try:
+                return json.loads(snippet)
+            except json.JSONDecodeError:
+                pass
+
+    return {"report": text}
+
+
+def _normalize_quality_score(score: Any) -> Optional[float]:
+    """Normalize quality score into 0-1 range."""
+
+    if score is None:
+        return None
+
+    try:
+        numeric = float(score)
+    except (TypeError, ValueError):
+        return None
+
+    if numeric > 1:
+        numeric = numeric / 100.0
+
+    if numeric < 0:
+        numeric = 0.0
+    elif numeric > 1:
+        numeric = 1.0
+
+    return numeric
 
 
 def _get_a2a_client(env_var: str) -> Optional[A2AAgentClient]:
@@ -344,11 +402,6 @@ async def executor_agent(
                     query, metadata={"task_id": task_id, "todo_id": todo_id} if task_id else None
                 )
 
-                # Mark microtask as completed
-                if todo_id:
-                    from agents.orchestrator.tools.todo_tools import update_todo_item
-                    await update_todo_item(task_id, todo_id, "completed", todo_list)
-
                 return {
                     "success": True,
                     "task_id": task_id,
@@ -425,11 +478,6 @@ async def executor_agent(
                 "response_preview": str(response)[:300]
             })
 
-        # Mark microtask as completed
-        if todo_id:
-            from agents.orchestrator.tools.todo_tools import update_todo_item
-            await update_todo_item(task_id, todo_id, "completed", todo_list)
-
         return {
             "success": True,
             "task_id": task_id,
@@ -466,16 +514,15 @@ async def execute_microtask(
     todo_list: Optional[list] = None,
 ) -> Dict[str, Any]:
     """
-    Execute a complete microtask: negotiation → authorization → execution.
+    Execute a complete microtask: negotiation → authorization → execution → verification.
 
-    This is a high-level tool that handles the entire workflow for a single microtask:
+    This high-level tool now orchestrates the full flow required by the marketplace:
     1. Mark TODO as in_progress
     2. Discover and negotiate with agent via negotiator_agent
-    3. Authorize payment
-    4. Execute task via executor_agent
-    5. Mark TODO as completed
-
-    Use this instead of calling negotiator/authorize/executor separately.
+    3. Authorize payment request (x402)
+    4. Execute the task via executor_agent
+    5. Run verifier on the agent output
+    6. Approve or reject the work (reputation + payment) before moving to next agent
 
     Args:
         task_id: Task ID
@@ -485,24 +532,25 @@ async def execute_microtask(
         capability_requirements: Required agent capabilities
         budget_limit: Maximum budget (optional)
         min_reputation_score: Minimum reputation (default 0.2)
-        execution_parameters: Additional parameters for execution
+        execution_parameters: Additional parameters for execution and verification
         todo_list: TODO list for status updates
 
     Returns:
-        Dict with:
-        - success: bool
-        - result: Execution result from agent
-        - agent_used: Which agent was selected
-        - todo_status: Final status of the TODO item
+        Dict describing microtask outcome, including verification + payment info.
     """
     import logging
+
     logger = logging.getLogger(__name__)
+    from agents.orchestrator.tools.todo_tools import update_todo_item
+
+    execution_parameters = execution_parameters or {}
+    verification_mode = execution_parameters.get("verification_mode", "standard")
+    require_verification = not execution_parameters.get("skip_verification", False)
 
     try:
         logger.info(f"[execute_microtask] Starting microtask {todo_id}: {task_name}")
 
         # Step 1: Mark TODO as in_progress
-        from agents.orchestrator.tools.todo_tools import update_todo_item
         await update_todo_item(task_id, todo_id, "in_progress", todo_list)
         logger.info(f"[execute_microtask] Marked {todo_id} as in_progress")
 
@@ -527,15 +575,11 @@ async def execute_microtask(
                 "negotiator_result": negotiator_result,
             }
 
-        # Parse negotiator response to extract payment_id and agent_domain
         response_text = negotiator_result.get("response", "")
 
-        # Extract payment_id (looking for patterns like "payment_id": "..." or "Payment ID: ...")
-        import re
         payment_id_match = re.search(r'[Pp]ayment[_ ][Ii][Dd]["\s:]+([a-f0-9-]+)', response_text)
         payment_id = payment_id_match.group(1) if payment_id_match else None
 
-        # Extract agent_domain (looking for "domain": "..." or "Agent ID: ...")
         agent_domain_match = re.search(r'[Aa]gent[_ ][Ii][Dd]["\s:]+(\d+)', response_text)
         if not agent_domain_match:
             agent_domain_match = re.search(r'[Dd]omain["\s:]+([a-zA-Z0-9-]+)', response_text)
@@ -548,7 +592,10 @@ async def execute_microtask(
             logger.info(f"[execute_microtask] Authorizing payment {payment_id}")
             auth_result = await authorize_payment_request(payment_id)
             if not auth_result.get("success"):
-                logger.warning(f"[execute_microtask] Payment authorization failed, but continuing: {auth_result}")
+                logger.warning(
+                    "[execute_microtask] Payment authorization failed, continuing without halt: %s",
+                    auth_result,
+                )
         else:
             logger.warning("[execute_microtask] No payment_id found in negotiator response, skipping authorization")
 
@@ -563,24 +610,173 @@ async def execute_microtask(
             todo_list=todo_list,
         )
 
-        # executor_agent already marks TODO as completed
+        if not executor_result.get("success"):
+            logger.error(f"[execute_microtask] Executor failed for {todo_id}: {executor_result}")
+            await update_todo_item(task_id, todo_id, "failed", todo_list)
+            return {
+                "success": False,
+                "task_id": task_id,
+                "todo_id": todo_id,
+                "error": executor_result.get("error", "Executor failed"),
+                "todo_status": "failed",
+            }
+
+        agent_output = executor_result.get("response", executor_result)
+        verification_payload: Optional[Dict[str, Any]] = None
+        approval_result: Optional[Dict[str, Any]] = None
+        payment_result: Optional[Dict[str, Any]] = None
+
+        worker_agent_id = agent_domain
+
+        if require_verification:
+            logger.info(f"[execute_microtask] Verifying output for {todo_id}")
+            verification_criteria = dict(execution_parameters.get("verification_criteria") or {})
+            verification_criteria.setdefault("task_name", task_name)
+            verification_criteria.setdefault("task_description", task_description)
+            verification_criteria.setdefault("todo_id", todo_id)
+            verification_criteria.setdefault("success_conditions", execution_parameters.get("success_conditions"))
+
+            task_result_payload = {
+                "task_name": task_name,
+                "todo_id": todo_id,
+                "agent_domain": agent_domain or "unknown",
+                "task_description": task_description,
+                "execution_parameters": execution_parameters,
+                "agent_output": agent_output,
+            }
+
+            verifier_response = await verifier_agent(
+                task_id=task_id,
+                payment_id=payment_id or "",
+                task_result=task_result_payload,
+                verification_criteria=verification_criteria,
+                verification_mode=verification_mode,
+                todo_id=todo_id,
+            )
+
+            if not verifier_response.get("success"):
+                failure_reason = verifier_response.get("error", "Verification agent failed")
+                logger.error(f"[execute_microtask] Verifier failed for {todo_id}: {failure_reason}")
+                await update_todo_item(task_id, todo_id, "failed", todo_list)
+                return {
+                    "success": False,
+                    "task_id": task_id,
+                    "todo_id": todo_id,
+                    "error": failure_reason,
+                    "verification": {"verification_passed": False, "report": failure_reason},
+                    "todo_status": "failed",
+                }
+
+            verification_payload = verifier_response.get("structured_result") or _extract_structured_verification(
+                verifier_response.get("response")
+            )
+
+            verification_passed = bool(verification_payload.get("verification_passed"))
+            quality_score = _normalize_quality_score(verification_payload.get("quality_score"))
+            if quality_score is None:
+                quality_score = 0.85 if verification_passed else 0.2
+            verification_payload["quality_score"] = quality_score
+
+            worker_agent_id = verification_payload.get("agent_id") or worker_agent_id
+
+            if verification_passed:
+                logger.info(f"[execute_microtask] Verification PASSED for {todo_id}")
+                reputation_result = None
+                if worker_agent_id:
+                    reputation_result = await increase_agent_reputation(
+                        agent_id=worker_agent_id,
+                        quality_score=quality_score,
+                        task_id=task_id,
+                        verification_result=verification_payload,
+                    )
+                approval_result = {
+                    "status": "approved",
+                    "reputation": reputation_result,
+                }
+                if payment_id:
+                    payment_result = await release_payment(
+                        payment_id,
+                        verification_payload.get("report") or "Verification passed",
+                    )
+                    approval_result["payment"] = payment_result
+                else:
+                    approval_result["payment"] = {
+                        "success": False,
+                        "error": "No payment_id available; payment not released",
+                    }
+
+                await update_todo_item(task_id, todo_id, "completed", todo_list)
+
+            else:
+                failure_reason = (
+                    verification_payload.get("failure_reason")
+                    or verification_payload.get("report")
+                    or "Verification failed"
+                )
+                logger.warning(f"[execute_microtask] Verification FAILED for {todo_id}: {failure_reason}")
+                reputation_result = None
+                if worker_agent_id:
+                    reputation_result = await decrease_agent_reputation(
+                        agent_id=worker_agent_id,
+                        quality_score=quality_score,
+                        task_id=task_id,
+                        verification_result=verification_payload,
+                        failure_reason=failure_reason,
+                    )
+                approval_result = {
+                    "status": "rejected",
+                    "reputation": reputation_result,
+                }
+
+                if payment_id:
+                    payment_result = await reject_and_refund(payment_id, failure_reason)
+                    approval_result["payment"] = payment_result
+
+                await update_todo_item(task_id, todo_id, "failed", todo_list)
+
+                return {
+                    "success": False,
+                    "task_id": task_id,
+                    "todo_id": todo_id,
+                    "result": agent_output,
+                    "agent_used": worker_agent_id or "unknown",
+                    "verification": verification_payload,
+                    "approval": approval_result,
+                    "todo_status": "failed",
+                    "error": failure_reason,
+                }
+
+        else:
+            logger.info(f"[execute_microtask] Verification skipped for {todo_id}")
+            approval_result = {
+                "status": "auto-approved",
+                "reason": "Verification skipped by configuration",
+            }
+            if payment_id:
+                payment_result = await release_payment(
+                    payment_id,
+                    "Verification skipped - auto approval",
+                )
+                approval_result["payment"] = payment_result
+            await update_todo_item(task_id, todo_id, "completed", todo_list)
+
         logger.info(f"[execute_microtask] Completed microtask {todo_id}")
 
         return {
             "success": True,
             "task_id": task_id,
             "todo_id": todo_id,
-            "result": executor_result.get("response", ""),
-            "agent_used": agent_domain or "unknown",
+            "result": agent_output,
+            "agent_used": worker_agent_id or agent_domain or "unknown",
             "todo_status": "completed",
-            "message": f"✓ Microtask '{task_name}' completed successfully"
+            "verification": verification_payload,
+            "approval": approval_result,
+            "payment": payment_result,
+            "message": f"✓ Microtask '{task_name}' completed successfully",
         }
 
     except Exception as e:
         logger.error(f"[execute_microtask] Failed for {todo_id}: {e}", exc_info=True)
-
-        # Mark TODO as failed
-        from agents.orchestrator.tools.todo_tools import update_todo_item
         await update_todo_item(task_id, todo_id, "failed", todo_list)
 
         return {
@@ -598,42 +794,60 @@ async def verifier_agent(
     task_result: Dict[str, Any],
     verification_criteria: Dict[str, Any],
     verification_mode: str = "standard",
+    todo_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Verify task quality, validate outputs, and release payments.
-
-    This agent:
-    - Validates task completion quality
-    - Executes code-based verification tests
-    - Fact-checks claims via web search
-    - Assesses data source credibility
-    - Releases or rejects payments based on verification
+    Verify task quality and produce a structured verdict for orchestrator approval.
 
     Args:
         task_id: Unique identifier for the task
-        payment_id: Payment authorization ID from negotiator
+        payment_id: Payment authorization ID from negotiator (optional)
         task_result: Result data from executor to verify
         verification_criteria: Expected criteria (schema, metrics, tests)
         verification_mode: Verification depth - "standard", "thorough", or "strict"
+        todo_id: Optional TODO identifier for progress scoping
 
     Returns:
-        Dict containing:
-        - verification_passed: Boolean indicating if verification passed
-        - verification_report: Detailed verification findings
-        - quality_score: Overall quality score (0-1)
-        - payment_status: Payment released/rejected
+        Dict containing the raw response and parsed verification payload.
     """
+    step_name = f"verifier_{todo_id}" if todo_id else "verifier"
+
+    def _finalize_progress(structured: Dict[str, Any]) -> None:
+        """Helper to emit completion state with structured payload."""
+        verification_passed = bool(structured.get("verification_passed"))
+        quality_score = _normalize_quality_score(structured.get("quality_score"))
+        if quality_score is not None:
+            structured["quality_score"] = quality_score
+        status = "completed" if verification_passed else "failed"
+        update_progress(
+            task_id,
+            step_name,
+            status,
+            {
+                "message": "✓ Verification passed" if verification_passed else "✗ Verification failed",
+                "verification": structured,
+                "todo_id": todo_id,
+                "payment_id": payment_id,
+                "verification_mode": verification_mode,
+            },
+        )
+
     try:
-        # Update progress: verifier started
-        update_progress(task_id, "verifier", "running", {
-            "message": "Verifying task results and quality",
-            "verification_mode": verification_mode,
-            "payment_id": payment_id
-        })
+        update_progress(
+            task_id,
+            step_name,
+            "running",
+            {
+                "message": "Verifying task results and quality",
+                "verification_mode": verification_mode,
+                "payment_id": payment_id,
+                "todo_id": todo_id,
+            },
+        )
 
         query = f"""
         Task ID: {task_id}
-        Payment ID: {payment_id}
+        Payment ID: {payment_id or "N/A"}
         Verification Mode: {verification_mode}
 
         Task Result to Verify:
@@ -642,16 +856,27 @@ async def verifier_agent(
         Verification Criteria:
         {verification_criteria}
 
-        Please perform {verification_mode} verification:
+        Perform {verification_mode} verification:
         1. Validate the output against the expected schema
         2. Check quality metrics (completeness, accuracy, relevance)
         3. Run verification code/tests if applicable
         4. Fact-check any claims using web search
         5. Assess data source credibility
         6. Generate a verification report with quality score
-        7. Release payment if verification passes, reject if it fails
 
-        Return verification status, detailed report, quality score, and payment status.
+        Output Requirements:
+        - Respond with a SINGLE JSON object (no markdown) matching:
+          {{
+            "verification_passed": bool,
+            "quality_score": float (0-1),
+            "report": str,
+            "issues": list[str],
+            "display_output": str,
+            "failure_reason": str | null,
+            "agent_id": str | null,
+            "recommended_action": "approve" | "revise" | "reject"
+          }}
+        - Do NOT call payment or reputation tools. Only recommend actions.
         """
 
         client = _get_a2a_client("VERIFIER_A2A_URL")
@@ -663,13 +888,18 @@ async def verifier_agent(
                         "task_id": task_id,
                         "payment_id": payment_id,
                         "mode": verification_mode,
+                        "todo_id": todo_id,
                     },
                 )
+                structured = _extract_structured_verification(response_text)
+                structured.setdefault("report", str(response_text))
+                _finalize_progress(structured)
                 return {
                     "success": True,
                     "task_id": task_id,
                     "payment_id": payment_id,
                     "response": str(response_text),
+                    "structured_result": structured,
                     "transport": "a2a",
                 }
             except Exception as exc:  # noqa: BLE001
@@ -696,28 +926,40 @@ async def verifier_agent(
                 verify_fact,
                 check_data_source_credibility,
                 research_best_practices,
-                release_payment,
-                reject_and_refund,
             ],
         )
 
         response = await agent.run(query)
 
-        # Log the full verifier response
         logger.info("[verifier_agent] ===== VERIFIER RESPONSE START =====")
         logger.info(f"[verifier_agent] {response}")
         logger.info("[verifier_agent] ===== VERIFIER RESPONSE END =====")
+
+        structured = _extract_structured_verification(response)
+        structured.setdefault("report", str(response))
+        _finalize_progress(structured)
 
         return {
             "success": True,
             "task_id": task_id,
             "payment_id": payment_id,
             "response": str(response),
+            "structured_result": structured,
             "transport": "local",
         }
 
     except Exception as e:
         logger.error(f"[verifier_agent] Verification failed: {e}", exc_info=True)
+        update_progress(
+            task_id,
+            step_name,
+            "failed",
+            {
+                "message": "Verifier agent crashed",
+                "error": str(e),
+                "todo_id": todo_id,
+            },
+        )
         return {
             "success": False,
             "task_id": task_id,

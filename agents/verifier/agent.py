@@ -9,8 +9,6 @@ from .tools import (
     verify_task_result,
     validate_output_schema,
     check_quality_metrics,
-    release_payment,
-    reject_and_refund,
     run_verification_code,
     run_unit_tests,
     validate_code_output,
@@ -54,9 +52,6 @@ def create_verifier_agent(use_research_mode: bool = False) -> Agent:
         verify_task_result,
         validate_output_schema,
         check_quality_metrics,
-        # Payment management
-        release_payment,
-        reject_and_refund,
         # Code execution
         run_verification_code,
         run_unit_tests,
