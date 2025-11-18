@@ -4,7 +4,8 @@
 Core services live in `api/` (FastAPI orchestrator, middleware, routes) and `agents/` (orchestrator, negotiator, executor, verifier, plus sample `research/` service). The Next.js marketplace and Zustand state sit in `frontend/`, while Hedera/protocol helpers and ORM models stay in `shared/`. Scripts such as `register_agents_with_metadata.py` belong in `scripts/`, tests in `tests/`, and project docs, diagrams, and published metadata in `docs/` and `agent_metadata/`.
 
 ## Build, Test, and Development Commands
-- `pip install -r requirements.txt` – install backend and agent deps.
+- Activate the repo-standard `.venv` before running any Python command: `source .venv/bin/activate` (create it once via `python -m venv .venv`).
+- Prefer `uv pip install -r requirements.txt` for dependency installation when the `uv` CLI is present; fall back to `pip install -r requirements.txt` otherwise.
 - `python -m uvicorn api.main:app --reload --host 0.0.0.0 --port 8000` – run the orchestrator/API.
 - `python -m uvicorn agents.research.main:app --reload --port 5000` – boot sample research agents.
 - `cd frontend && npm install && npm run dev` – serve the marketplace UI at `http://localhost:3000`.
