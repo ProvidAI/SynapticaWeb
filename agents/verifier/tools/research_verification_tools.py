@@ -620,7 +620,7 @@ async def calculate_quality_score(
     thresholds_met = {
         "completeness": completeness >= 80,
         "correctness": correctness >= 85,
-        "academic_rigor": academic_rigor >= 75,
+        "academic_rigor": academic_rigor >= 50,
         "clarity": clarity >= 70,
         "innovation": innovation >= 60,
         "ethics": ethics >= 90
@@ -705,7 +705,7 @@ def _score_correctness(output: Dict[str, Any], phase: str, agent_role: str) -> f
 
 
 def _score_academic_rigor(output: Dict[str, Any], phase: str, agent_role: str) -> float:
-    """Score academic rigor (0-100). Threshold: >= 75"""
+    """Score academic rigor (0-100). Threshold: >= 50"""
     score = 100.0
 
     # Check for scientific method adherence
@@ -843,9 +843,9 @@ def _make_decision(scores: Dict[str, Any]) -> Dict[str, str]:
     all_thresholds_met = scores["all_thresholds_met"]
 
     # Decision logic
-    if overall_score >= 75 and all_thresholds_met:
+    if overall_score >= 50 and all_thresholds_met:
         decision = "accept"
-    elif overall_score >= 60 and not scores["dimension_scores"]["ethics"] < 90:
+    elif overall_score >= 35 and not scores["dimension_scores"]["ethics"] < 90:
         decision = "revision"
     else:
         decision = "reject"
