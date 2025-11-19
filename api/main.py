@@ -328,6 +328,9 @@ async def approve_verification(task_id: str):
 @app.post("/api/tasks/{task_id}/reject_verification")
 async def reject_verification(task_id: str, reason: str = "Rejected by reviewer"):
     """Reject verification for a task requiring human review."""
+    import logging
+    logger = logging.getLogger(__name__)
+
     if task_id not in tasks_storage:
         return {
             "success": False,
@@ -348,6 +351,10 @@ async def reject_verification(task_id: str, reason: str = "Rejected by reviewer"
     }
     tasks_storage[task_id]["verification_pending"] = False
 
+    # CRITICAL: Set cancellation flag to stop all ongoing execution
+    tasks_storage[task_id]["cancelled"] = True
+    tasks_storage[task_id]["status"] = "CANCELLED"
+
     # Update progress
     verification_data = tasks_storage[task_id].get("verification_data", {})
     todo_id = verification_data.get("todo_id", "unknown")
@@ -359,9 +366,20 @@ async def reject_verification(task_id: str, reason: str = "Rejected by reviewer"
         "rejection_reason": reason
     })
 
+    # Add prominent cancellation card to progress logs
+    update_task_progress(task_id, "cancellation", "cancelled", {
+        "message": f"🚫 TASK CANCELLED - All execution stopped",
+        "reason": reason,
+        "cancelled_at": datetime.now().isoformat(),
+        "cancelled_by": "user"
+    })
+
+    # Log cancellation details
+    logger.info(f"[reject_verification] Task {task_id} cancelled by user. Reason: {reason}")
+
     return {
         "success": True,
-        "message": "Verification rejected",
+        "message": "Verification rejected and task execution cancelled",
         "task_id": task_id,
         "reason": reason
     }

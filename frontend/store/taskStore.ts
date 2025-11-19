@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type TaskStatus = 
+export type TaskStatus =
   | 'IDLE'
   | 'PLANNING'
   | 'NEGOTIATING'
@@ -9,7 +9,8 @@ export type TaskStatus =
   | 'EXECUTING'
   | 'VERIFYING'
   | 'COMPLETE'
-  | 'FAILED';
+  | 'FAILED'
+  | 'CANCELLED';
 
 export interface TaskPlan {
   capabilities: string[];
@@ -191,7 +192,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         throw new Error('Failed to reject verification');
       }
 
-      set({ verificationPending: false, verificationData: null, status: 'FAILED' });
+      // Set status to CANCELLED (not FAILED) to show cancellation in UI
+      set({ verificationPending: false, verificationData: null, status: 'CANCELLED' });
     } catch (error) {
       console.error('Error rejecting verification:', error);
       throw error;
