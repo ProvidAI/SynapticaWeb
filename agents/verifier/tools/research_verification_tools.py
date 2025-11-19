@@ -32,14 +32,27 @@ async def verify_research_output(
         - feedback: str
         - decision: str (accept/revision/reject)
     """
+    import json
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Log input type for debugging
+    logger.info(f"[verify_research_output] Received output of type: {type(output).__name__}")
+    if isinstance(output, dict):
+        logger.info(f"[verify_research_output] Dict has {len(output)} keys: {list(output.keys())[:10]}")
+    elif isinstance(output, str):
+        logger.info(f"[verify_research_output] String length: {len(output)} chars")
+
     # SAFETY CHECK: Ensure output is a dict, not a string
     # If the LLM passes a string, try to parse it as JSON first
     if isinstance(output, str):
-        import json
+        logger.warning(f"[verify_research_output] WARNING: Received string instead of dict. This indicates the LLM did not parse JSON correctly.")
         try:
             output = json.loads(output)
-        except (json.JSONDecodeError, TypeError):
+            logger.info(f"[verify_research_output] Successfully parsed string as JSON dict with {len(output)} keys")
+        except (json.JSONDecodeError, TypeError) as e:
             # If not JSON, wrap it in a dict
+            logger.warning(f"[verify_research_output] Failed to parse as JSON ({e}). Wrapping in dict.")
             output = {"response": output}
 
     # Step 1: Fast initial check (< 5 seconds)
@@ -189,6 +202,10 @@ async def _validate_by_phase(phase: str, agent_role: str, output: Dict[str, Any]
 
 def _validate_problem_framer(output: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Problem Framer output."""
+    # Type guard: Ensure output is a dict
+    if not isinstance(output, dict):
+        raise TypeError(f"Expected dict for output, got {type(output).__name__}. This indicates a data flow issue in the verification pipeline.")
+
     issues = []
 
     # Check for clear research question
@@ -217,6 +234,10 @@ def _validate_problem_framer(output: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_feasibility_analyst(output: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Feasibility Analyst output."""
+    # Type guard: Ensure output is a dict
+    if not isinstance(output, dict):
+        raise TypeError(f"Expected dict for output, got {type(output).__name__}. This indicates a data flow issue in the verification pipeline.")
+
     issues = []
 
     # Check for timeline estimate
@@ -247,6 +268,10 @@ def _validate_feasibility_analyst(output: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_goal_planner(output: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Goal Planner output."""
+    # Type guard: Ensure output is a dict
+    if not isinstance(output, dict):
+        raise TypeError(f"Expected dict for output, got {type(output).__name__}. This indicates a data flow issue in the verification pipeline.")
+
     issues = []
 
     # Check for SMART objectives
@@ -273,6 +298,10 @@ def _validate_goal_planner(output: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_literature_miner(output: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Literature Miner output."""
+    # Type guard: Ensure output is a dict
+    if not isinstance(output, dict):
+        raise TypeError(f"Expected dict for output, got {type(output).__name__}. This indicates a data flow issue in the verification pipeline.")
+
     issues = []
 
     # Check minimum paper count
@@ -318,6 +347,10 @@ def _validate_literature_miner(output: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_knowledge_synthesizer(output: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Knowledge Synthesizer output."""
+    # Type guard: Ensure output is a dict
+    if not isinstance(output, dict):
+        raise TypeError(f"Expected dict for output, got {type(output).__name__}. This indicates a data flow issue in the verification pipeline.")
+
     issues = []
 
     # Check for literature summary
@@ -348,6 +381,10 @@ def _validate_knowledge_synthesizer(output: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_hypothesis_designer(output: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Hypothesis Designer output."""
+    # Type guard: Ensure output is a dict
+    if not isinstance(output, dict):
+        raise TypeError(f"Expected dict for output, got {type(output).__name__}. This indicates a data flow issue in the verification pipeline.")
+
     issues = []
 
     # Check for null and alternative hypotheses
@@ -413,6 +450,10 @@ async def _validate_code_generator(output: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_experiment_runner(output: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Experiment Runner output."""
+    # Type guard: Ensure output is a dict
+    if not isinstance(output, dict):
+        raise TypeError(f"Expected dict for output, got {type(output).__name__}. This indicates a data flow issue in the verification pipeline.")
+
     issues = []
 
     # Check for results
@@ -444,6 +485,10 @@ def _validate_experiment_runner(output: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_insight_generator(output: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Insight Generator output."""
+    # Type guard: Ensure output is a dict
+    if not isinstance(output, dict):
+        raise TypeError(f"Expected dict for output, got {type(output).__name__}. This indicates a data flow issue in the verification pipeline.")
+
     issues = []
 
     # Check for insights
@@ -474,6 +519,10 @@ def _validate_insight_generator(output: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_bias_detector(output: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Bias Detector output."""
+    # Type guard: Ensure output is a dict
+    if not isinstance(output, dict):
+        raise TypeError(f"Expected dict for output, got {type(output).__name__}. This indicates a data flow issue in the verification pipeline.")
+
     issues = []
 
     # Check for bias scan
@@ -501,6 +550,10 @@ def _validate_bias_detector(output: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_compliance_checker(output: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Compliance Checker output."""
+    # Type guard: Ensure output is a dict
+    if not isinstance(output, dict):
+        raise TypeError(f"Expected dict for output, got {type(output).__name__}. This indicates a data flow issue in the verification pipeline.")
+
     issues = []
 
     # Check for ethical review
@@ -531,6 +584,10 @@ def _validate_compliance_checker(output: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_paper_writer(output: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Paper Writer output."""
+    # Type guard: Ensure output is a dict
+    if not isinstance(output, dict):
+        raise TypeError(f"Expected dict for output, got {type(output).__name__}. This indicates a data flow issue in the verification pipeline.")
+
     issues = []
 
     # Check for standard sections
@@ -557,6 +614,10 @@ def _validate_paper_writer(output: Dict[str, Any]) -> Dict[str, Any]:
 
 def _validate_peer_reviewer(output: Dict[str, Any]) -> Dict[str, Any]:
     """Validate Peer Reviewer output."""
+    # Type guard: Ensure output is a dict
+    if not isinstance(output, dict):
+        raise TypeError(f"Expected dict for output, got {type(output).__name__}. This indicates a data flow issue in the verification pipeline.")
+
     issues = []
 
     # Check for feedback
@@ -599,23 +660,84 @@ async def calculate_quality_score(
     """
     start_time = datetime.now()
 
+    import json
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Log input type for debugging
+    logger.info(f"[calculate_quality_score] Received output of type: {type(output).__name__}")
+    if isinstance(output, dict):
+        logger.info(f"[calculate_quality_score] Dict has {len(output)} keys: {list(output.keys())[:10]}")
+    elif isinstance(output, str):
+        logger.info(f"[calculate_quality_score] String length: {len(output)} chars, first 100: {output[:100]}")
+
     # SAFETY CHECK: Ensure output is a dict, not a string
     # If the LLM passes a string, try to parse it as JSON first
     if isinstance(output, str):
-        import json
+        logger.warning(f"[calculate_quality_score] WARNING: Received string instead of dict. This indicates the LLM did not parse JSON correctly.")
         try:
             output = json.loads(output)
-        except (json.JSONDecodeError, TypeError):
-            # If not JSON, wrap it in a dict
-            output = {"response": output}
+            logger.info(f"[calculate_quality_score] Successfully parsed string output as JSON dict with {len(output)} keys")
+        except (json.JSONDecodeError, TypeError) as e:
+            # If not JSON, wrap it in a dict with metadata for better scoring
+            # The text content should still be scored for clarity, completeness, etc.
+            logger.warning(f"[calculate_quality_score] Failed to parse as JSON ({e}). Wrapping text ({len(output)} chars) in dict for scoring.")
+            logger.warning(f"[calculate_quality_score] This will result in poor scores. Check data flow in orchestrator.")
+            output = {
+                "response": output,
+                "content": output,  # Duplicate for compatibility
+                "format": "text",   # Indicate this is a text response
+            }
 
-    # Calculate individual dimension scores
-    completeness = _score_completeness(output, phase_validation)
-    correctness = _score_correctness(output, phase, agent_role)
-    academic_rigor = _score_academic_rigor(output, phase, agent_role)
-    clarity = _score_clarity(output)
-    innovation = _score_innovation(output, phase)
-    ethics = _score_ethics(output, phase_validation)
+    # Calculate individual dimension scores with error handling
+    try:
+        logger.info(f"[calculate_quality_score] Calculating completeness score...")
+        completeness = _score_completeness(output, phase_validation)
+        logger.info(f"[calculate_quality_score] Completeness: {completeness}")
+    except Exception as e:
+        logger.error(f"[calculate_quality_score] Error calculating completeness: {e}", exc_info=True)
+        logger.error(f"[calculate_quality_score] output type: {type(output).__name__}, phase_validation type: {type(phase_validation).__name__}")
+        raise
+
+    try:
+        logger.info(f"[calculate_quality_score] Calculating correctness score...")
+        correctness = _score_correctness(output, phase, agent_role)
+        logger.info(f"[calculate_quality_score] Correctness: {correctness}")
+    except Exception as e:
+        logger.error(f"[calculate_quality_score] Error calculating correctness: {e}", exc_info=True)
+        raise
+
+    try:
+        logger.info(f"[calculate_quality_score] Calculating academic_rigor score...")
+        academic_rigor = _score_academic_rigor(output, phase, agent_role)
+        logger.info(f"[calculate_quality_score] Academic rigor: {academic_rigor}")
+    except Exception as e:
+        logger.error(f"[calculate_quality_score] Error calculating academic_rigor: {e}", exc_info=True)
+        raise
+
+    try:
+        logger.info(f"[calculate_quality_score] Calculating clarity score...")
+        clarity = _score_clarity(output)
+        logger.info(f"[calculate_quality_score] Clarity: {clarity}")
+    except Exception as e:
+        logger.error(f"[calculate_quality_score] Error calculating clarity: {e}", exc_info=True)
+        raise
+
+    try:
+        logger.info(f"[calculate_quality_score] Calculating innovation score...")
+        innovation = _score_innovation(output, phase)
+        logger.info(f"[calculate_quality_score] Innovation: {innovation}")
+    except Exception as e:
+        logger.error(f"[calculate_quality_score] Error calculating innovation: {e}", exc_info=True)
+        raise
+
+    try:
+        logger.info(f"[calculate_quality_score] Calculating ethics score...")
+        ethics = _score_ethics(output, phase_validation)
+        logger.info(f"[calculate_quality_score] Ethics: {ethics}")
+    except Exception as e:
+        logger.error(f"[calculate_quality_score] Error calculating ethics: {e}", exc_info=True)
+        raise
 
     # Calculate weighted overall score
     overall_score = (

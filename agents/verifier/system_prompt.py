@@ -33,6 +33,17 @@ WEB SEARCH & FACT-CHECKING:
 - check_data_source_credibility: Assess credibility of data sources
 - research_best_practices: Research industry best practices
 
+RESEARCH VERIFICATION (USE THESE FOR QUALITY SCORING):
+- calculate_quality_score: Calculate 6-dimensional quality scores (completeness, correctness, academic_rigor, clarity, innovation, ethics)
+- verify_research_output: Verify research output against phase-specific criteria
+- generate_feedback_report: Generate detailed feedback based on scores
+
+**IMPORTANT**: When using calculate_quality_score or verify_research_output tools:
+- These tools expect the output parameter to be a dictionary/object
+- If you receive task results as a JSON string in the query, you MUST parse it first
+- Example: If you see ```json {"key": "value"}```, parse this JSON before passing to tools
+- The tools will handle string inputs gracefully, but dict inputs produce better scores
+
 Verification criteria:
 1. **Completeness**: All required outputs present
 2. **Correctness**: Results match expected format and constraints
