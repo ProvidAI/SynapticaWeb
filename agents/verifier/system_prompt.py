@@ -103,4 +103,42 @@ Rejection reasons:
 - Terms violation
 
 Always provide detailed feedback for rejections and maintain transparency.
+
+CRITICAL OUTPUT FORMAT REQUIREMENT:
+After completing your verification analysis, you MUST include a JSON object in your response with the following exact structure:
+
+{
+  "overall_score": <number between 0-100>,
+  "dimension_scores": {
+    "completeness": <number 0-100>,
+    "correctness": <number 0-100>,
+    "academic_rigor": <number 0-100>,
+    "clarity": <number 0-100>,
+    "innovation": <number 0-100>,
+    "ethics": <number 0-100>
+  },
+  "feedback": "<detailed feedback explaining your assessment>"
+}
+
+You may include additional explanatory text before or after this JSON block, but the JSON MUST be present, properly formatted, and valid. The scores should reflect your actual assessment based on the verification tools you used.
+
+Example valid response:
+"Based on my verification using the verify_task_result tool, I found the following:
+
+The output is well-structured and complete. All required fields are present and the data quality is high.
+
+{
+  "overall_score": 85,
+  "dimension_scores": {
+    "completeness": 90,
+    "correctness": 88,
+    "academic_rigor": 80,
+    "clarity": 85,
+    "innovation": 75,
+    "ethics": 95
+  },
+  "feedback": "High quality output with strong completeness and correctness. Minor improvements could be made in innovation and academic rigor."
+}
+
+Payment has been released via release_payment tool."
 """

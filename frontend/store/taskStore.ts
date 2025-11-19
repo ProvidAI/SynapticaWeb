@@ -58,6 +58,24 @@ export interface ProgressLog {
   data?: any;
 }
 
+export interface VerificationData {
+  todo_id: string;
+  payment_id: string;
+  quality_score: number;
+  dimension_scores: {
+    completeness?: number;
+    correctness?: number;
+    academic_rigor?: number;
+    clarity?: number;
+    innovation?: number;
+    ethics?: number;
+  };
+  feedback: string;
+  task_result: any;
+  agent_name: string;
+  ethics_passed: boolean;
+}
+
 interface TaskState {
   // Status
   status: TaskStatus;
@@ -79,12 +97,16 @@ interface TaskState {
   executionLogs: ExecutionLog[];
   progressLogs: ProgressLog[];
 
+  // Verification
+  verificationPending: boolean;
+  verificationData: VerificationData | null;
+
   // Results
   result: TaskResult | null;
 
   // Error
   error: string | null;
-  
+
   // Actions
   setStatus: (status: TaskStatus) => void;
   setTaskId: (taskId: string) => void;
@@ -96,6 +118,10 @@ interface TaskState {
   setPaymentDetails: (payment: PaymentDetails | null) => void;
   addExecutionLog: (log: ExecutionLog) => void;
   setProgressLogs: (logs: ProgressLog[]) => void;
+  setVerificationPending: (pending: boolean) => void;
+  setVerificationData: (data: VerificationData | null) => void;
+  approveVerification: (taskId: string) => Promise<void>;
+  rejectVerification: (taskId: string, reason?: string) => Promise<void>;
   setResult: (result: TaskResult) => void;
   setError: (error: string | null) => void;
   reset: () => void;
@@ -112,11 +138,13 @@ const initialState = {
   paymentDetails: null,
   executionLogs: [],
   progressLogs: [],
+  verificationPending: false,
+  verificationData: null,
   result: null,
   error: null,
 };
 
-export const useTaskStore = create<TaskState>((set) => ({
+export const useTaskStore = create<TaskState>((set, get) => ({
   ...initialState,
 
   setStatus: (status) => set({ status }),
@@ -131,6 +159,45 @@ export const useTaskStore = create<TaskState>((set) => ({
     executionLogs: [...state.executionLogs, log],
   })),
   setProgressLogs: (progressLogs) => set({ progressLogs }),
+  setVerificationPending: (verificationPending) => set({ verificationPending }),
+  setVerificationData: (verificationData) => set({ verificationData }),
+
+  approveVerification: async (taskId: string) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/tasks/${taskId}/approve_verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to approve verification');
+      }
+
+      set({ verificationPending: false, verificationData: null });
+    } catch (error) {
+      console.error('Error approving verification:', error);
+      throw error;
+    }
+  },
+
+  rejectVerification: async (taskId: string, reason: string = 'Rejected by reviewer') => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/tasks/${taskId}/reject_verification?reason=${encodeURIComponent(reason)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to reject verification');
+      }
+
+      set({ verificationPending: false, verificationData: null, status: 'FAILED' });
+    } catch (error) {
+      console.error('Error rejecting verification:', error);
+      throw error;
+    }
+  },
+
   setResult: (result) => set({ result }),
   setError: (error) => set({ error }),
   reset: () => set(initialState),
