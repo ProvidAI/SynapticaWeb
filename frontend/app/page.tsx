@@ -26,6 +26,7 @@ const statusMessages: Record<TaskStatus, string> = {
   VERIFYING: 'Independent verification in progress',
   COMPLETE: 'Research complete & verified',
   FAILED: 'Action required - research interrupted',
+  CANCELLED: 'Research cancelled by user',
 }
 
 const heroStats = [
@@ -170,6 +171,13 @@ export default function Home() {
     let attempts = 0
 
     const poll = async () => {
+      // Check if task was already cancelled in the store - if so, stop polling
+      const currentStatus = useTaskStore.getState().status
+      if (currentStatus === 'CANCELLED') {
+        console.log('[pollTaskUpdates] Task already cancelled in store, stopping poll')
+        return
+      }
+
       if (attempts >= maxAttempts) {
         setError('Task timeout - please check backend logs')
         setStatus('FAILED')
@@ -243,6 +251,15 @@ export default function Home() {
             error: task.error || 'Task execution failed',
           })
           return
+        } else if (task.status === 'CANCELLED') {
+          // Task was cancelled - stop polling immediately
+          console.log('[pollTaskUpdates] Task cancelled, stopping poll')
+          setStatus('CANCELLED')
+          setResult({
+            success: false,
+            error: 'Task cancelled by user',
+          })
+          return
         }
 
         attempts++
@@ -312,9 +329,11 @@ export default function Home() {
   const statusIndicatorClass =
     status === 'FAILED'
       ? 'bg-red-400'
-      : status === 'COMPLETE'
-        ? 'bg-emerald-400'
-        : 'bg-sky-400 animate-pulse'
+      : status === 'CANCELLED'
+        ? 'bg-orange-400'
+        : status === 'COMPLETE'
+          ? 'bg-emerald-400'
+          : 'bg-sky-400 animate-pulse'
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-slate-950 text-slate-100">
@@ -356,14 +375,14 @@ export default function Home() {
 
                             <div className="space-y-6">
                               <div className="rounded-2xl border border-white/15 bg-white/95 p-1 text-slate-900 shadow-[0_30px_80px_-45px_rgba(59,130,246,0.7)]">
-                                {(status === 'IDLE' || status === 'FAILED') ? (
+                                {(status === 'IDLE' || status === 'FAILED' || status === 'CANCELLED') ? (
                                   <TaskForm onSubmit={handleStartTask} />
                                 ) : (
                                   <TaskStatusCard />
                                 )}
                               </div>
 
-                              {(status === 'COMPLETE' || status === 'FAILED') && (
+                              {(status === 'COMPLETE' || status === 'FAILED' || status === 'CANCELLED') && (
                                 <div className="space-y-4">
                                   <div className="rounded-2xl border border-white/15 bg-white/95 p-1 text-slate-900 shadow-[0_30px_80px_-45px_rgba(59,130,246,0.7)]">
                                     <TaskResults />

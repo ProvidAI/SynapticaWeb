@@ -532,6 +532,15 @@ async def _extract_verification_score(verifier_result: Dict[str, Any]) -> Dict[s
     }
 
 
+def _check_task_cancelled(task_id: str) -> bool:
+    """Check if task has been cancelled by user."""
+    from api.main import tasks_storage
+
+    if task_id in tasks_storage:
+        return tasks_storage[task_id].get("cancelled", False)
+    return False
+
+
 async def _request_human_verification(
     task_id: str,
     todo_id: str,
@@ -655,10 +664,29 @@ async def execute_microtask(
     try:
         logger.info(f"[execute_microtask] Starting microtask {todo_id}: {task_name}")
 
+        # CHECK CANCELLATION: Before starting
+        if _check_task_cancelled(task_id):
+            logger.warning(f"[execute_microtask] Task {task_id} was cancelled by user. Stopping execution.")
+            return {
+                "success": False,
+                "error": "Task cancelled by user",
+                "todo_status": "cancelled"
+            }
+
         # Step 1: Mark TODO as in_progress
         from agents.orchestrator.tools.todo_tools import update_todo_item
         await update_todo_item(task_id, todo_id, "in_progress", todo_list)
         logger.info(f"[execute_microtask] Marked {todo_id} as in_progress")
+
+        # CHECK CANCELLATION: Before negotiation
+        if _check_task_cancelled(task_id):
+            logger.warning(f"[execute_microtask] Task {task_id} cancelled during setup. Stopping.")
+            await update_todo_item(task_id, todo_id, "cancelled", todo_list)
+            return {
+                "success": False,
+                "error": "Task cancelled by user",
+                "todo_status": "cancelled"
+            }
 
         # Step 2: Discover and negotiate with agent
         logger.info(f"[execute_microtask] Calling negotiator for {todo_id}")
@@ -749,6 +777,16 @@ async def execute_microtask(
         logger.info(f"[execute_microtask] Extracted payment_id={payment_id}, agent_domain={agent_domain}, agent_name={agent_name}")
         logger.info(f"[execute_microtask] Full negotiator response for debugging: {response_text[:500]}")
 
+        # CHECK CANCELLATION: Before payment authorization
+        if _check_task_cancelled(task_id):
+            logger.warning(f"[execute_microtask] Task {task_id} cancelled after negotiation. Stopping.")
+            await update_todo_item(task_id, todo_id, "cancelled", todo_list)
+            return {
+                "success": False,
+                "error": "Task cancelled by user",
+                "todo_status": "cancelled"
+            }
+
         # Step 3: Authorize payment
         if payment_id:
             logger.info(f"[execute_microtask] Authorizing payment {payment_id}")
@@ -757,6 +795,16 @@ async def execute_microtask(
                 logger.warning(f"[execute_microtask] Payment authorization failed, but continuing: {auth_result}")
         else:
             logger.warning("[execute_microtask] No payment_id found in negotiator response, skipping authorization")
+
+        # CHECK CANCELLATION: Before executing task
+        if _check_task_cancelled(task_id):
+            logger.warning(f"[execute_microtask] Task {task_id} cancelled before execution. Stopping.")
+            await update_todo_item(task_id, todo_id, "cancelled", todo_list)
+            return {
+                "success": False,
+                "error": "Task cancelled by user",
+                "todo_status": "cancelled"
+            }
 
         # Step 4: Execute task
         logger.info(f"[execute_microtask] Calling executor for {todo_id}")

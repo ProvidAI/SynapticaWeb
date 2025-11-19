@@ -11,7 +11,7 @@ export function TaskResults() {
   const { result, selectedAgent, status, progressLogs } = useTaskStore()
   const [rating, setRating] = useState<number>(0)
 
-  if (status !== 'COMPLETE' && status !== 'FAILED') {
+  if (status !== 'COMPLETE' && status !== 'FAILED' && status !== 'CANCELLED') {
     return null
   }
 
