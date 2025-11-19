@@ -123,7 +123,7 @@ interface TaskState {
   setVerificationData: (data: VerificationData | null) => void;
   approveVerification: (taskId: string) => Promise<void>;
   rejectVerification: (taskId: string, reason?: string) => Promise<void>;
-  setResult: (result: TaskResult) => void;
+  setResult: (result: TaskResult | null) => void;
   setError: (error: string | null) => void;
   reset: () => void;
 }

@@ -123,6 +123,7 @@ export default function Home() {
       setIsProcessing(true)
       setStatus('PLANNING')
       setError(null)
+      setResult(null) // Clear previous result when starting a new task
 
       addExecutionLog({
         timestamp: new Date().toLocaleTimeString(),
