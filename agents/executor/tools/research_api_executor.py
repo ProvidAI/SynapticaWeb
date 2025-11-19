@@ -77,6 +77,34 @@ async def _resolve_agent_endpoint(agent_domain: str, explicit_endpoint: Optional
     return _legacy_agent_endpoint(agent_domain)
 
 
+async def _post_agent_request(endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Send a POST request to the agent endpoint and return parsed JSON data."""
+    logger.debug("[_post_agent_request] POST %s", endpoint)
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        response = await client.post(endpoint, json=payload)
+        response.raise_for_status()
+
+    try:
+        data = response.json()
+    except json.JSONDecodeError as error:
+        logger.error(
+            "[_post_agent_request] Invalid JSON response from %s: %s",
+            endpoint,
+            error,
+        )
+        raise ValueError(
+            f"Agent response from {endpoint} was not valid JSON."
+        ) from error
+
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Agent response from {endpoint} must be a JSON object."
+        )
+
+    return data
+
+
 @tool
 async def list_research_agents() -> Dict[str, Any]:
     """
@@ -223,7 +251,7 @@ async def execute_research_agent(
         payload = {
             "request": task_description,
             "context": context or {},
-            "metadata": metadata or {}
+            "metadata": metadata or {},
         }
         logger.info(f"[execute_research_agent] Payload: {payload}")
 
@@ -231,23 +259,28 @@ async def execute_research_agent(
         logger.info(f"[execute_research_agent] Calling {endpoint}")
 
         # Emit web_search progress if this is a literature/web search agent and we have a task_id
+        web_search_started = False
         try:
             task_id = (metadata or {}).get("task_id")
-            if task_id and any(k in (agent_domain or "") for k in ("literature", "miner", "knowledge", "paper", "search")):
-                update_progress(task_id, "web_search", "running", {
-                    "message": "Searching the web for relevant sources",
-                    "agent_domain": agent_domain
-                })
+            if task_id and any(
+                k in (agent_domain or "") for k in ("literature", "miner", "knowledge", "paper", "search")
+            ):
+                update_progress(
+                    task_id,
+                    "web_search",
+                    "running",
+                    {
+                        "message": "Searching the web for relevant sources",
+                        "agent_domain": agent_domain,
+                    },
+                )
+                web_search_started = True
         except Exception:
             # Non-fatal; continue execution
             pass
 
-        async with httpx.AsyncClient(timeout=120.0) as client:  # 2 minute timeout for agent execution
-            response = await client.post(endpoint, json=payload)
-            response.raise_for_status()
-
         try:
-            return await _post(endpoint)
+            data = await _post_agent_request(endpoint, payload)
         except httpx.RequestError as connection_error:
             fallback_endpoint = _legacy_agent_endpoint(agent_domain)
             if endpoint != fallback_endpoint:
@@ -258,31 +291,41 @@ async def execute_research_agent(
                     fallback_endpoint,
                 )
                 try:
-                    return await _post(fallback_endpoint)
+                    data = await _post_agent_request(fallback_endpoint, payload)
                 except Exception as fallback_exception:  # noqa: BLE001
                     logger.error(
                         "[execute_research_agent] Fallback endpoint %s also failed: %s",
                         fallback_endpoint,
                         fallback_exception,
                     )
-            if not data.get("success"):
-                logger.error(f"[execute_research_agent] Agent returned error: {data.get('error')}")
+                    raise fallback_exception
+            else:
+                raise connection_error
 
-            # Close web_search phase if it was opened
+        if not data.get("success"):
+            logger.error(f"[execute_research_agent] Agent returned error: {data.get('error')}")
+
+        # Close web_search phase if it was opened
+        if web_search_started:
             try:
                 task_id = (metadata or {}).get("task_id")
-                if task_id and any(k in (agent_domain or "") for k in ("literature", "miner", "knowledge", "paper", "search")):
-                    update_progress(task_id, "web_search", "completed", {
+                update_progress(
+                    task_id,
+                    "web_search",
+                    "completed",
+                    {
                         "message": "✓ Web search results retrieved",
-                        "agent_domain": agent_domain
-                    })
+                        "agent_domain": agent_domain,
+                    },
+                )
             except Exception:
                 pass
 
-            return data
+        return data
 
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 404:
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code
+        if status_code == 404:
             logger.error(f"[execute_research_agent] Agent not found: {agent_domain}")
             return {
                 "success": False,
@@ -309,8 +352,8 @@ async def execute_research_agent(
         return {
             "success": False,
             "agent_id": agent_domain,
-            "error": f"Failed to connect to research agents API: {str(e)}",
-            "suggestion": "Make sure the research agents server is running on port 5001"
+            "error": f"Failed to connect to research agents API: {str(exc)}",
+            "suggestion": "Make sure the research agents server is running on port 5001",
         }
 
     except Exception as exc:  # noqa: BLE001

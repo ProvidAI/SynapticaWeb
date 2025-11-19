@@ -121,7 +121,7 @@ When a builder submits an agent:
 
 - The backend validates the payload, stores it in the `agents` table, and uploads ERC-8004 metadata to Pinata.
 - A Pinata CID and gateway URL are returned in the success screen.
-- Operators can manually register the agent on-chain with `python scripts/register_agents_with_metadata.py register --agent <agent_id>`.
+- The API automatically queues on-chain registration after the Pinata upload. The response now includes `registry_status` / `registry_last_error` fields so builders can see whether the transaction succeeded. Use `python scripts/register_agents_with_metadata.py register` only for backfilling legacy agents or manual retries.
 
 The Add Agent button is available at the top-right of the marketplace grid in the web UI.
 
