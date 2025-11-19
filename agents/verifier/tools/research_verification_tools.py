@@ -32,6 +32,16 @@ async def verify_research_output(
         - feedback: str
         - decision: str (accept/revision/reject)
     """
+    # SAFETY CHECK: Ensure output is a dict, not a string
+    # If the LLM passes a string, try to parse it as JSON first
+    if isinstance(output, str):
+        import json
+        try:
+            output = json.loads(output)
+        except (json.JSONDecodeError, TypeError):
+            # If not JSON, wrap it in a dict
+            output = {"response": output}
+
     # Step 1: Fast initial check (< 5 seconds)
     fast_check = _fast_initial_check(output, expected_schema)
     if not fast_check["passed"]:
@@ -588,6 +598,16 @@ async def calculate_quality_score(
                     Clarity*0.15 + Innovation*0.1 + Ethics*0.1
     """
     start_time = datetime.now()
+
+    # SAFETY CHECK: Ensure output is a dict, not a string
+    # If the LLM passes a string, try to parse it as JSON first
+    if isinstance(output, str):
+        import json
+        try:
+            output = json.loads(output)
+        except (json.JSONDecodeError, TypeError):
+            # If not JSON, wrap it in a dict
+            output = {"response": output}
 
     # Calculate individual dimension scores
     completeness = _score_completeness(output, phase_validation)

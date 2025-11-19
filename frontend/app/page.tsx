@@ -94,6 +94,8 @@ export default function Home() {
     setPaymentDetails,
     addExecutionLog,
     setProgressLogs,
+    setVerificationPending,
+    setVerificationData,
     setResult,
     setError,
     reset,
@@ -192,6 +194,21 @@ export default function Home() {
           setProgressLogs(task.progress)
         }
 
+        // Check for verification pending
+        if (task.verification_pending && task.verification_data) {
+          console.log('[pollTaskUpdates] Verification pending, showing modal')
+          setVerificationPending(true)
+          setVerificationData(task.verification_data)
+          setStatus('VERIFYING')
+          // Continue polling to wait for human decision
+          attempts++
+          setTimeout(poll, 5000)
+          return
+        } else {
+          setVerificationPending(false)
+          setVerificationData(null)
+        }
+
         // Determine status from progress logs
         const lastProgress = task.progress?.[task.progress.length - 1]
         if (lastProgress) {
@@ -207,7 +224,7 @@ export default function Home() {
             setStatus('PAYING')
           } else if (lastProgress.step === 'executor') {
             setStatus('EXECUTING')
-          } else if (lastProgress.step === 'verifier') {
+          } else if (lastProgress.step.startsWith('verification_')) {
             setStatus('VERIFYING')
           }
         }

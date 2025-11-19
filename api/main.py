@@ -286,6 +286,87 @@ async def get_task_status(task_id: str):
     return tasks_storage[task_id]
 
 
+@app.post("/api/tasks/{task_id}/approve_verification")
+async def approve_verification(task_id: str):
+    """Approve verification for a task requiring human review."""
+    if task_id not in tasks_storage:
+        return {
+            "success": False,
+            "error": "Task not found"
+        }
+
+    if not tasks_storage[task_id].get("verification_pending"):
+        return {
+            "success": False,
+            "error": "No verification pending for this task"
+        }
+
+    # Store approval decision
+    tasks_storage[task_id]["verification_decision"] = {
+        "approved": True,
+        "timestamp": datetime.now().isoformat()
+    }
+    tasks_storage[task_id]["verification_pending"] = False
+
+    # Update progress
+    verification_data = tasks_storage[task_id].get("verification_data", {})
+    todo_id = verification_data.get("todo_id", "unknown")
+
+    update_task_progress(task_id, f"verification_{todo_id}", "completed", {
+        "message": "✓ Approved by human reviewer",
+        "human_approved": True,
+        "quality_score": verification_data.get("quality_score", 0)
+    })
+
+    return {
+        "success": True,
+        "message": "Verification approved",
+        "task_id": task_id
+    }
+
+
+@app.post("/api/tasks/{task_id}/reject_verification")
+async def reject_verification(task_id: str, reason: str = "Rejected by reviewer"):
+    """Reject verification for a task requiring human review."""
+    if task_id not in tasks_storage:
+        return {
+            "success": False,
+            "error": "Task not found"
+        }
+
+    if not tasks_storage[task_id].get("verification_pending"):
+        return {
+            "success": False,
+            "error": "No verification pending for this task"
+        }
+
+    # Store rejection decision
+    tasks_storage[task_id]["verification_decision"] = {
+        "approved": False,
+        "reason": reason,
+        "timestamp": datetime.now().isoformat()
+    }
+    tasks_storage[task_id]["verification_pending"] = False
+
+    # Update progress
+    verification_data = tasks_storage[task_id].get("verification_data", {})
+    todo_id = verification_data.get("todo_id", "unknown")
+
+    update_task_progress(task_id, f"verification_{todo_id}", "failed", {
+        "message": f"✗ Rejected by human reviewer: {reason}",
+        "human_rejected": True,
+        "quality_score": verification_data.get("quality_score", 0),
+        "rejection_reason": reason
+    })
+
+    return {
+        "success": True,
+        "message": "Verification rejected",
+        "task_id": task_id,
+        "reason": reason
+    }
+
+
 @app.get("/a2a/events", response_model=List[A2AEventResponse])
 def list_a2a_events(limit: int = 50) -> List[A2AEventResponse]:
     """Return recent A2A events emitted by the system."""
