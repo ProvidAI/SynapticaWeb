@@ -945,8 +945,8 @@ async def execute_microtask(
                 "feedback": f"⚠️ Verification crashed: {str(verification_error)}\n\nPlease manually review the output."
             }
 
-        # Decision logic: Auto-approve if score >= 50 AND ethics >= 90
-        if quality_score >= 50 and ethics_score >= 90:
+        # Decision logic: Auto-approve if score >= 70 AND ethics >= 80
+        if quality_score >= 70 and ethics_score >= 80:
             # Auto-approve
             logger.info(f"[execute_microtask] Auto-approving payment {payment_id} (score: {quality_score})")
             update_progress(task_id, f"verification_{todo_id}", "completed", {
@@ -958,6 +958,19 @@ async def execute_microtask(
             if payment_id:
                 from agents.verifier.tools.payment_tools import release_payment
                 await release_payment(payment_id, f"Auto-approved: Quality score {quality_score}/100")
+
+            # Update agent reputation after successful verification
+            from agents.verifier.tools.reputation_tools import increase_agent_reputation
+            try:
+                reputation_result = await increase_agent_reputation(
+                    agent_id=agent_domain or agent_name or "unknown",
+                    quality_score=quality_score / 100,  # Convert to 0-1 scale
+                    task_id=task_id,
+                    verification_result=verification_score_data
+                )
+                logger.info(f"[execute_microtask] Reputation updated: {reputation_result.get('new_reputation', 'N/A')}")
+            except Exception as rep_error:
+                logger.error(f"[execute_microtask] Failed to update reputation: {rep_error}", exc_info=True)
 
             # Mark TODO as completed
             from agents.orchestrator.tools.todo_tools import update_todo_item
@@ -999,6 +1012,19 @@ async def execute_microtask(
                     from agents.verifier.tools.payment_tools import release_payment
                     await release_payment(payment_id, "Approved by human reviewer")
 
+                # Update agent reputation after human approval
+                from agents.verifier.tools.reputation_tools import increase_agent_reputation
+                try:
+                    reputation_result = await increase_agent_reputation(
+                        agent_id=agent_domain or agent_name or "unknown",
+                        quality_score=quality_score / 100,  # Convert to 0-1 scale
+                        task_id=task_id,
+                        verification_result=verification_score_data
+                    )
+                    logger.info(f"[execute_microtask] Reputation updated after human approval: {reputation_result.get('new_reputation', 'N/A')}")
+                except Exception as rep_error:
+                    logger.error(f"[execute_microtask] Failed to update reputation: {rep_error}", exc_info=True)
+
                 # Mark TODO as completed
                 from agents.orchestrator.tools.todo_tools import update_todo_item
                 await update_todo_item(task_id, todo_id, "completed", todo_list)
@@ -1019,6 +1045,20 @@ async def execute_microtask(
                 if payment_id:
                     from agents.verifier.tools.payment_tools import reject_and_refund
                     await reject_and_refund(payment_id, decision.get("reason", "Rejected by human reviewer"))
+
+                # Decrease agent reputation after rejection
+                from agents.verifier.tools.reputation_tools import decrease_agent_reputation
+                try:
+                    reputation_result = await decrease_agent_reputation(
+                        agent_id=agent_domain or agent_name or "unknown",
+                        quality_score=quality_score / 100,  # Convert to 0-1 scale
+                        task_id=task_id,
+                        verification_result=verification_score_data,
+                        failure_reason=decision.get("reason", "Rejected by human reviewer")
+                    )
+                    logger.info(f"[execute_microtask] Reputation decreased after rejection: {reputation_result.get('new_reputation', 'N/A')}")
+                except Exception as rep_error:
+                    logger.error(f"[execute_microtask] Failed to update reputation: {rep_error}", exc_info=True)
 
                 # Mark TODO as failed
                 from agents.orchestrator.tools.todo_tools import update_todo_item
