@@ -8,16 +8,24 @@ import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 
 export function TaskResults() {
-  const { result, selectedAgent, status } = useTaskStore()
+  const { result, selectedAgent, status, progressLogs } = useTaskStore()
   const [rating, setRating] = useState<number>(0)
 
-  if (status !== 'COMPLETE' && status !== 'FAILED') {
+  if (status !== 'COMPLETE' && status !== 'FAILED' && status !== 'CANCELLED') {
     return null
   }
 
   if (!result) {
     return null
   }
+
+  // Extract verification details from progress logs
+  const verificationLog = progressLogs?.find(log => log.step.startsWith('verification_'))
+  const verificationData = verificationLog?.data
+  const qualityScore = verificationData?.quality_score
+  const isAutoApproved = verificationData?.auto_approved
+  const isHumanApproved = verificationData?.human_approved
+  const rejectionReason = verificationData?.rejection_reason
 
   // Extract orchestrator's synthesized response
   // The orchestrator should return a markdown-formatted response in result.data.orchestrator_response
@@ -71,6 +79,51 @@ export function TaskResults() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Verification Details */}
+        {(qualityScore !== undefined || isAutoApproved || isHumanApproved || rejectionReason) && (
+          <div className={`p-4 rounded-lg border ${result.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+            <h4 className="font-semibold mb-3 text-sm">Verification Summary</h4>
+            <div className="space-y-2 text-sm">
+              {qualityScore !== undefined && (
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-700">Quality Score:</span>
+                  <span className={`font-semibold px-2 py-1 rounded ${
+                    qualityScore >= 80 ? 'bg-emerald-100 text-emerald-700' :
+                    qualityScore >= 50 ? 'bg-yellow-100 text-yellow-700' :
+                    'bg-red-100 text-red-700'
+                  }`}>
+                    {qualityScore}/100
+                  </span>
+                </div>
+              )}
+              {isAutoApproved && (
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Auto-Approved
+                  </span>
+                  <span className="text-xs text-slate-600">High quality output met all standards</span>
+                </div>
+              )}
+              {isHumanApproved && (
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Human Approved
+                  </span>
+                  <span className="text-xs text-slate-600">Manually reviewed and approved</span>
+                </div>
+              )}
+              {rejectionReason && (
+                <div className="p-3 bg-red-100 border border-red-200 rounded">
+                  <div className="font-semibold text-red-800 text-xs mb-1">Rejection Reason:</div>
+                  <p className="text-red-700 text-xs">{rejectionReason}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {result.report && (
           <div className="p-4 bg-muted rounded-lg">
             <h4 className="font-semibold mb-2">Verifier's Report:</h4>

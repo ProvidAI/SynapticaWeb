@@ -104,6 +104,14 @@ async def validate_output_schema(output: Dict[str, Any], schema: Dict[str, Any])
             "confidence": "float"
         }
     """
+    # SAFETY CHECK: Ensure output is a dict, not a string
+    if isinstance(output, str):
+        try:
+            output = json.loads(output)
+        except (json.JSONDecodeError, TypeError):
+            # If not JSON, wrap it in a dict
+            output = {"response": output}
+
     errors = []
 
     for field, expected_type in schema.items():

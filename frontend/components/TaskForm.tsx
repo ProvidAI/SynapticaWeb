@@ -33,7 +33,7 @@ export function TaskForm({ onSubmit }: TaskFormProps) {
     onSubmit(description, budgetValue)
   }
 
-  const isDisabled = status !== 'IDLE' && status !== 'FAILED'
+  const isDisabled = !['IDLE', 'FAILED', 'CANCELLED'].includes(status)
 
   return (
     <Card className="relative overflow-hidden rounded-3xl border border-white/40 bg-white/95 shadow-[0_30px_80px_-45px_rgba(59,130,246,0.5)] transition">

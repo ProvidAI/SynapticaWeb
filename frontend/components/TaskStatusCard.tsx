@@ -5,8 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { useTaskStore, TaskStatus } from '@/store/taskStore'
-import { CheckCircle2, Circle, XCircle, Loader2 } from 'lucide-react'
+import { CheckCircle2, Circle, XCircle, Loader2, Pause } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { VerificationCard } from '@/components/VerificationCard'
 
 const statusConfig: Record<TaskStatus, { label: string; progress: number; icon: React.ReactNode }> = {
   IDLE: { label: 'Ready', progress: 0, icon: <Circle className="h-4 w-4" /> },
@@ -21,7 +22,7 @@ const statusConfig: Record<TaskStatus, { label: string; progress: number; icon: 
 }
 
 export function TaskStatusCard() {
-  const { status, plan, selectedAgent, executionLogs, result, error, progressLogs } = useTaskStore()
+  const { status, plan, selectedAgent, executionLogs, result, error, progressLogs, verificationPending, verificationData } = useTaskStore()
   const progressLogsEndRef = useRef<HTMLDivElement>(null)
 
   const config = statusConfig[status]
@@ -228,6 +229,105 @@ export function TaskStatusCard() {
                           </div>
                         </div>
                       </div>
+                    </div>
+                  )
+                }
+
+                // Special handling for verification steps
+                if (log.step.startsWith('verification_')) {
+                  const isWaitingForHuman = log.status === 'waiting_for_human'
+                  const isHumanApproved = log.data?.human_approved
+                  const isHumanRejected = log.data?.human_rejected
+                  const qualityScore = log.data?.quality_score
+
+                  return (
+                    <div key={`verification-${index}`} className="space-y-2">
+                      <div
+                        className={cn(
+                          'relative overflow-hidden rounded-lg border p-4',
+                          isCompleted && 'bg-gradient-to-br from-emerald-50 to-white border-emerald-200',
+                          isFailed && 'bg-gradient-to-br from-red-50 to-white border-red-200',
+                          isWaitingForHuman && 'bg-gradient-to-br from-yellow-50 to-white border-yellow-300',
+                          isRunning && !isWaitingForHuman && 'bg-gradient-to-br from-purple-50 to-white border-purple-200',
+                        )}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={cn(
+                            "flex h-8 w-8 items-center justify-center rounded-full",
+                            isCompleted && "bg-emerald-100",
+                            isFailed && "bg-red-100",
+                            isWaitingForHuman && "bg-yellow-100",
+                            isRunning && !isWaitingForHuman && "bg-purple-100"
+                          )}>
+                            {isCompleted ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                            ) : isFailed ? (
+                              <XCircle className="h-4 w-4 text-red-600" />
+                            ) : isWaitingForHuman ? (
+                              <Pause className="h-4 w-4 text-yellow-600" />
+                            ) : (
+                              <Loader2 className="h-4 w-4 text-purple-600 animate-spin" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={cn(
+                                "font-semibold text-xs",
+                                isCompleted && 'text-emerald-700',
+                                isFailed && 'text-red-700',
+                                isWaitingForHuman && 'text-yellow-700',
+                                isRunning && !isWaitingForHuman && 'text-purple-700'
+                              )}>
+                                [verification]
+                              </span>
+                              <span className="text-xs text-slate-500">
+                                {new Date(log.timestamp).toLocaleTimeString()}
+                              </span>
+                              {qualityScore !== undefined && (
+                                <span className={cn(
+                                  "text-xs px-2 py-0.5 rounded-full",
+                                  qualityScore >= 80 ? "bg-emerald-100 text-emerald-700" :
+                                  qualityScore >= 50 ? "bg-yellow-100 text-yellow-700" :
+                                  "bg-red-100 text-red-700"
+                                )}>
+                                  Score: {qualityScore}/100
+                                </span>
+                              )}
+                              {isHumanApproved && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                                  Human Approved
+                                </span>
+                              )}
+                              {log.data?.auto_approved && (
+                                <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                                  Auto-Approved
+                                </span>
+                              )}
+                            </div>
+                            <p className={cn(
+                              "mt-1 text-sm",
+                              isCompleted && 'text-emerald-800',
+                              isFailed && 'text-red-800',
+                              isWaitingForHuman && 'text-yellow-800',
+                              isRunning && !isWaitingForHuman && 'text-purple-800'
+                            )}>
+                              {log.data?.message || 'Analyzing output quality...'}
+                            </p>
+                            {log.data?.rejection_reason && (
+                              <div className="mt-2 rounded border border-red-200 bg-red-50 p-2">
+                                <p className="text-xs text-red-800">
+                                  <span className="font-semibold">Rejection reason:</span> {log.data.rejection_reason}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Show VerificationCard if waiting for human */}
+                      {isWaitingForHuman && verificationPending && verificationData && (
+                        <VerificationCard />
+                      )}
                     </div>
                   )
                 }

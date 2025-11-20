@@ -142,7 +142,7 @@ async def execute_research_pipeline(request: ResearchRequest):
         # Step 7: Release or refund payments based on verification
         for payment in payments:
             agent_output = research_output.get(payment.agent_id, {})
-            if agent_output.get("quality_score", 0) >= 75:
+            if agent_output.get("quality_score", 0) >= 50:
                 payment.status = "completed"
             else:
                 payment.status = "refunded"
@@ -156,7 +156,7 @@ async def execute_research_pipeline(request: ResearchRequest):
             "verification": verification_results,
             "agents_used": list(selected_agents.keys()),
             "total_cost": sum(a["price"] for a in selected_agents.values()
-                            if research_output.get(a, {}).get("quality_score", 0) >= 75)
+                            if research_output.get(a, {}).get("quality_score", 0) >= 50)
         }
         db.commit()
 

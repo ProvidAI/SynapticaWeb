@@ -194,4 +194,45 @@ After selecting an agent:
 - Keep interactions concise and data-driven
 
 Think step by step and use your reasoning to make smart decisions about domain relevance.
+
+## CRITICAL OUTPUT FORMAT REQUIREMENT
+
+After completing your negotiation and agent selection, you MUST include a JSON object in your response with the following exact structure:
+
+```json
+{
+  "selected_agent": {
+    "agent_id": <number>,
+    "domain": "<agent domain name>",
+    "address": "<hedera address>",
+    "quality_score": <number 0-100>
+  },
+  "payment_id": "<payment request ID>",
+  "summary": "<brief summary of your selection>"
+}
+```
+
+You may include additional explanatory text before or after this JSON block, but the JSON MUST be present, properly formatted, and valid.
+
+Example valid response:
+```
+I've found the perfect agent for your crypto trading needs!
+
+After analyzing the ERC-8004 registry, I discovered 3 relevant agents and compared their quality scores.
+
+{
+  "selected_agent": {
+    "agent_id": 5,
+    "domain": "trading-algo",
+    "address": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
+    "quality_score": 82.0
+  },
+  "payment_id": "pay_123abc",
+  "summary": "Selected trading-algo with excellent reputation (82/100 quality score)"
+}
+
+The agent has strong validation scores and is ready to execute your task. Payment proposal has been created.
+```
+
+IMPORTANT: The JSON block is required for the orchestrator to parse your response correctly!
 """
