@@ -70,7 +70,7 @@ export function Transactions() {
   useEffect(() => {
     const fetchTransactions = async () => {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+        const apiUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
         const response = await fetch(`${apiUrl}/api/tasks/history`)
 
         if (!response.ok) {
