@@ -89,6 +89,15 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database...")
     Base.metadata.create_all(bind=engine)
     logger.info("Database initialized")
+
+    # Register all agents in database now that tables exist
+    logger.info("Registering agents in database...")
+    for agent_id, agent in AGENT_REGISTRY.items():
+        try:
+            agent._register_in_database()
+        except Exception as e:
+            logger.warning(f"Failed to register agent {agent_id}: {e}")
+
     logger.info("Research agents ready")
     yield
     # Shutdown

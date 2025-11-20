@@ -63,8 +63,16 @@ class BaseResearchAgent(ABC):
 
     def _register_in_database(self):
         """Register agent in database if not already registered."""
+        # Skip registration if tables don't exist yet (will be called later)
+        from sqlalchemy import inspect
         db = SessionLocal()
         try:
+            # Check if tables exist
+            inspector = inspect(db.bind)
+            if 'agents' not in inspector.get_table_names():
+                print(f"Skipping registration for {self.agent_id} - database not initialized yet")
+                return
+
             default_endpoint = f"{os.getenv('RESEARCH_API_URL', 'http://localhost:5001').rstrip('/')}/agents/{self.agent_id}"
             normalized_pricing = self._normalize_pricing()
             # Check if agent exists
