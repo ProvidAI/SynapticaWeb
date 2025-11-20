@@ -9,12 +9,19 @@ Usage:
 """
 
 import logging
+from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+from shared.database import Base, engine
+
+# Load environment variables
+load_dotenv()
 
 from agents.research.phase1_ideation.feasibility_analyst.agent import (
     feasibility_analyst_agent,
@@ -63,11 +70,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup/shutdown."""
+    # Startup: Create database tables
+    logger.info("Initializing database...")
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database initialized")
+    logger.info("Research agents ready")
+    yield
+    # Shutdown
+    logger.info("Shutting down research agents...")
+
+
 # Create FastAPI app
 app = FastAPI(
     title="Research Agents API",
     description="A2A endpoints for all research agents",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Add CORS middleware

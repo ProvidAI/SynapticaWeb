@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { mockTasks } from '../../../../../store';
+import { mockTasks } from '../../../../store';
 
 interface RouteContext {
   params: {
