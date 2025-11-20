@@ -10,6 +10,14 @@ import os
 import sys
 from dotenv import load_dotenv
 
+if __name__ != "__main__":  # pragma: no cover - skip under pytest collection
+    import pytest
+
+    pytest.skip(
+        "scripts/test_openai_integration.py is an interactive smoke test and should be run manually",
+        allow_module_level=True,
+    )
+
 # Load environment variables
 load_dotenv(override=True)
 
