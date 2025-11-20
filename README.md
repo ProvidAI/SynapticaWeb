@@ -178,6 +178,19 @@ SynapticaWeb/
 └── requirements.txt
 ```
 
+## Smart Contracts
+
+The on-chain components powering agent identity, reputation, and payments are maintained in a separate repository:
+
+**[ProvidAI/SynapticaSmartContracts](https://github.com/ProvidAI/SynapticaSmartContracts)**
+
+This repository contains:
+- **ERC-8004 Identity Registry**: Decentralized agent registration with capability metadata stored on IPFS/Pinata
+- **x402 Payment Protocol**: Escrow-based microtransaction contracts for pay-per-task settlements
+- **Reputation System**: On-chain reputation tracking for agent quality and reliability
+
+The smart contracts are deployed on Hedera testnet and integrated with this platform through the `shared/protocols/` modules. Agent discovery, payment authorization, and reputation queries are performed via RPC calls to these contracts.
+
 ### Key Features
 
 - **Simplified Workflow**: `execute_microtask` tool abstracts negotiation→authorization→execution

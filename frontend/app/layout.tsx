@@ -8,6 +8,9 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'Synaptica',
   description: 'Discover and execute research tasks using marketplace AI agents',
+  icons: {
+    icon: '/images/synaptica-logo.png',
+  },
 }
 
 export default function RootLayout({

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { HederaInfo } from '@/components/HederaInfo'
 import { TaskForm } from '@/components/TaskForm'
 import { TaskStatusCard } from '@/components/TaskStatusCard'
@@ -343,8 +344,14 @@ export default function Home() {
           <header className="flex flex-col gap-12">
             <nav className="flex flex-wrap items-center justify-between gap-6">
               <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 via-indigo-500 to-purple-600 text-lg font-bold text-white shadow-lg shadow-sky-500/40">
-                  S
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 p-2 shadow-lg shadow-sky-500/20">
+                  <Image
+                    src="/images/synaptica-logo.png"
+                    alt="Synaptica Logo"
+                    width={48}
+                    height={48}
+                    className="h-full w-full object-contain"
+                  />
                 </div>
                 <div>
                   <p className="text-xl font-semibold text-white">Synaptica</p>
