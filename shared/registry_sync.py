@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy.orm import Session
@@ -745,6 +746,17 @@ def _extract_metadata_fields(domain: str, metadata: Optional[Dict[str, Any]]) ->
     endpoint_url = _select_endpoint(endpoints, preferred_type="primary")
     health_url = _select_endpoint(endpoints, preferred_type="health")
 
+    endpoint_url = _override_endpoint(
+        endpoint_url,
+        agent_id=agent_id,
+        endpoint_kind="primary",
+    )
+    health_url = _override_endpoint(
+        health_url,
+        agent_id=agent_id,
+        endpoint_kind="health",
+    )
+
     pricing = metadata.get("pricing") or {}
     normalized_pricing = {
         "rate": pricing.get("rate") or pricing.get("base_rate") or 0,
@@ -802,6 +814,55 @@ def _select_endpoint(endpoints: Iterable[Dict[str, Any]], preferred_type: str) -
         if url:
             return url
     return None
+
+
+def _override_endpoint(
+    url: Optional[str],
+    *,
+    agent_id: str,
+    endpoint_kind: str,
+) -> Optional[str]:
+    env_var = (
+        "AGENT_HEALTH_ENDPOINT_BASE_URL_OVERRIDE"
+        if endpoint_kind == "health"
+        else "AGENT_ENDPOINT_BASE_URL_OVERRIDE"
+    )
+    override_base = (os.getenv(env_var) or "").strip()
+    if endpoint_kind == "health" and not override_base:
+        override_base = (os.getenv("AGENT_ENDPOINT_BASE_URL_OVERRIDE") or "").strip()
+
+    if not override_base:
+        return url
+
+    if url:
+        parsed = urlparse(url)
+        if parsed.scheme and parsed.scheme.lower() not in {"http", "https"}:
+            return url
+        path = parsed.path or ""
+        if parsed.params:
+            path = f"{path};{parsed.params}"
+        if not path or path == "/":
+            path = f"/agents/{agent_id}"
+        query = f"?{parsed.query}" if parsed.query else ""
+        fragment = f"#{parsed.fragment}" if parsed.fragment else ""
+    else:
+        path = f"/agents/{agent_id}"
+        query = ""
+        fragment = ""
+
+    if not path.startswith("/"):
+        path = f"/{path}"
+
+    override_base = override_base.rstrip("/")
+    overridden = f"{override_base}{path}{query}{fragment}"
+    logger.debug(
+        "Overriding %s endpoint for %s: %s -> %s",
+        endpoint_kind,
+        agent_id,
+        url or "<default>",
+        overridden,
+    )
+    return overridden
 
 
 def _normalize_reputation_score(reputation: Dict[str, Any]) -> float:

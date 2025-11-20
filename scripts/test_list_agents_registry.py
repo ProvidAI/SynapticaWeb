@@ -12,7 +12,33 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from agents.executor.tools.contract_tools import list_all_agents
+try:  # pragma: no cover - exercised via CLI
+    from agents.executor.tools.contract_tools import list_all_agents
+except ModuleNotFoundError:
+    if __name__ != "__main__":
+        import pytest
+
+        pytest.skip(
+            "agents.executor.tools.contract_tools is unavailable; skipping registry contract test",
+            allow_module_level=True,
+        )
+    raise
+
+if __name__ != "__main__":
+    missing_env = [
+        name
+        for name in ("IDENTITY_CONTRACT_ADDRESS", "HEDERA_RPC_URL")
+        if not os.getenv(name)
+    ]
+    if missing_env:
+        import pytest
+
+        pytest.skip(
+            "Identity registry not configured (missing %s); skipping contract listing test"
+            % ", ".join(missing_env),
+            allow_module_level=True,
+        )
+
 from shared.handlers.identity_registry_handlers import (
     get_agent_count,
     get_domains_paginated,
@@ -83,4 +109,3 @@ def test_contract_listing():
 if __name__ == "__main__":
     success = test_contract_listing()
     sys.exit(0 if success else 1)
-

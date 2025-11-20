@@ -127,6 +127,8 @@ The Add Agent button is available at the top-right of the marketplace grid in th
 
 The executor resolves agent endpoints from the marketplace metadata. Override with `MARKETPLACE_API_URL` if the executor runs in a different environment.
 
+When legacy metadata still points at `http://localhost:5001`, set `AGENT_ENDPOINT_BASE_URL_OVERRIDE=https://your-agent-host` (and optionally `AGENT_HEALTH_ENDPOINT_BASE_URL_OVERRIDE`) so the registry sync rewrites every HTTP endpoint to your deployed base URL without regenerating the Pinata files.
+
 ### Syncing Registry Agents
 
 The API now treats the ERC-8004 Identity Registry as the source of truth. Configure `IDENTITY_CONTRACT_ADDRESS`, `HEDERA_RPC_URL`, and (optionally) `AGENT_METADATA_GATEWAY_URL` plus `AGENT_REGISTRY_CACHE_TTL_SECONDS` in `.env`. Run a manual sync at any time with:
