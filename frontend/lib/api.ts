@@ -7,9 +7,10 @@ const BACKEND_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhos
 
 export interface CreateTaskRequest {
   description: string;
-  attachments?: string[];
+  capability_requirements?: string;
   budget_limit?: number;
-  min_reputation?: number;
+  min_reputation_score?: number;
+  verification_mode?: string;
 }
 
 export interface TaskResponse {
@@ -65,6 +66,17 @@ export interface TaskStatusResponse {
     report?: string;
   };
   error?: string;
+  verification_pending?: boolean;
+  verification_data?: {
+    todo_id: string;
+    payment_id: string;
+    quality_score: number;
+    dimension_scores: Record<string, number>;
+    feedback: string;
+    task_result: any;
+    agent_name: string;
+    ethics_passed: boolean;
+  };
 }
 
 /**
@@ -244,6 +256,7 @@ export interface AgentSubmissionPayload {
   endpoint_url: string;
   health_check_url?: string;
   base_rate: number;
+  currency?: string;
   rate_type?: string;
   hedera_account?: string;
   logo_url?: string;

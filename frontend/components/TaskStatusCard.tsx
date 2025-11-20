@@ -19,6 +19,7 @@ const statusConfig: Record<TaskStatus, { label: string; progress: number; icon: 
   VERIFYING: { label: 'Verifying...', progress: 90, icon: <Loader2 className="h-4 w-4 animate-spin" /> },
   COMPLETE: { label: 'Complete', progress: 100, icon: <CheckCircle2 className="h-4 w-4 text-green-500" /> },
   FAILED: { label: 'Failed', progress: 0, icon: <XCircle className="h-4 w-4 text-red-500" /> },
+  CANCELLED: { label: 'Cancelled', progress: 0, icon: <XCircle className="h-4 w-4 text-orange-500" /> },
 }
 
 export function TaskStatusCard() {

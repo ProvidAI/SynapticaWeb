@@ -156,7 +156,7 @@ export function VerificationCard() {
           <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50/50 p-3">
             {/* Show all 6 dimensions, even if missing from response */}
             {['completeness', 'correctness', 'academic_rigor', 'clarity', 'innovation', 'ethics'].map((dimension) => {
-              const score = dimension_scores[dimension] || 0
+              const score = (dimension_scores as Record<string, number>)[dimension] || 0
               const passed = getDimensionStatus(dimension, score)
               return (
                 <div key={dimension} className="space-y-1">
