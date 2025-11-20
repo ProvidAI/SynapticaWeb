@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -19,6 +21,7 @@ from shared.database import (
     AgentRegistrySyncState,
     SessionLocal,
 )
+from shared.agents_cache import rebuild_agents_cache
 from shared.handlers.identity_registry_handlers import get_all_domains, resolve_by_domain
 from shared.handlers.reputation_registry_handlers import get_full_reputation_info
 from shared.handlers.validation_registry_handlers import get_full_validation_info
@@ -26,6 +29,7 @@ from shared.handlers.validation_registry_handlers import get_full_validation_inf
 logger = logging.getLogger(__name__)
 
 _SYNC_LOCK = threading.Lock()
+_METADATA_CACHE_LOCK = threading.Lock()
 
 
 class RegistrySyncError(RuntimeError):
@@ -73,6 +77,37 @@ class RegistrySyncResult:
     error: Optional[str] = None
 
 
+@dataclass
+class _PendingSnapshot:
+    """Intermediate representation used while resolving metadata."""
+
+    registry_agent_id: int
+    registry_domain: str
+    registry_address: str
+    metadata_uri: Optional[str]
+    metadata_cid: Optional[str]
+    metadata_url: Optional[str]
+    reputation: Dict[str, Any]
+    validation: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class MetadataFetchJob:
+    """Metadata fetch instructions for worker threads."""
+
+    metadata_uri: str
+    cid: Optional[str]
+    urls: List[str]
+
+
+@dataclass
+class _DomainProcessingResult:
+    """Container for parallel domain resolution work."""
+
+    pending_snapshot: Optional[_PendingSnapshot]
+    metadata_job: Optional[MetadataFetchJob]
+
+
 def ensure_registry_cache(force: bool = False) -> Optional[RegistrySyncResult]:
     """
     Synchronize registry data when the cache is stale.
@@ -95,6 +130,34 @@ def ensure_registry_cache(force: bool = False) -> Optional[RegistrySyncResult]:
         return _sync_agents_from_registry()
     finally:
         _SYNC_LOCK.release()
+
+
+def trigger_registry_cache_refresh(force: bool = False) -> bool:
+    """Trigger a registry sync in a background thread when the cache is stale."""
+
+    if not force and not _needs_sync():
+        return False
+
+    def _runner() -> None:
+        try:
+            ensure_registry_cache(force=force)
+        except Exception:  # noqa: BLE001
+            logger.exception("Background registry sync failed")
+
+    threading.Thread(target=_runner, daemon=True, name="registry-sync").start()
+    return True
+
+
+def is_registry_cache_stale() -> bool:
+    """Return True when the registry cache TTL has expired."""
+
+    return _needs_sync()
+
+
+def get_registry_cache_ttl_seconds() -> int:
+    """Expose the configured registry cache TTL."""
+
+    return _get_cache_ttl_seconds()
 
 
 def get_registry_sync_status() -> Tuple[str, Optional[datetime]]:
@@ -155,16 +218,24 @@ def _sync_agents_from_registry() -> RegistrySyncResult:
 
     session = SessionLocal()
     synced_domains: List[str] = []
+    synced_timestamp: Optional[datetime] = None
     try:
         synced_domains = _apply_snapshots(session, snapshots)
         state = _get_or_create_state(session)
+        synced_timestamp = datetime.utcnow()
         state.status = "ok"
-        state.last_successful_at = datetime.utcnow()
-        state.last_attempted_at = state.last_successful_at
+        state.last_successful_at = synced_timestamp
+        state.last_attempted_at = synced_timestamp
         state.last_error = None
         session.commit()
     finally:
         session.close()
+
+    if synced_timestamp:
+        try:
+            rebuild_agents_cache(synced_at=synced_timestamp)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to rebuild agents cache after registry sync")
 
     return RegistrySyncResult(
         synced=len(synced_domains),
@@ -174,6 +245,7 @@ def _sync_agents_from_registry() -> RegistrySyncResult:
 
 
 def _fetch_registry_snapshots() -> List[AgentSnapshot]:
+    started_at = time.perf_counter()
     try:
         domains = get_all_domains()
     except RuntimeError as exc:  # pragma: no cover - depends on web3 config
@@ -185,57 +257,333 @@ def _fetch_registry_snapshots() -> List[AgentSnapshot]:
 
     logger.info("Syncing %s agents from registry", len(domains))
 
+    metadata_cache = _load_existing_metadata_cache()
+    pending_jobs: Dict[str, MetadataFetchJob] = {}
+    pending_snapshots: List[_PendingSnapshot] = []
+
+    workers = _get_registry_worker_count(len(domains))
+    logger.debug("Resolving %s registry domains with %s workers", len(domains), workers)
+    resolution_started = time.perf_counter()
+
+    if workers <= 1:
+        for domain in domains:
+            result = _process_domain_for_snapshot(domain, metadata_cache)
+            _collect_domain_result(result, pending_snapshots, pending_jobs)
+    else:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="registry-domain") as executor:
+            future_map = {
+                executor.submit(_process_domain_for_snapshot, domain, metadata_cache): domain
+                for domain in domains
+            }
+            for future in as_completed(future_map):
+                domain = future_map[future]
+                try:
+                    result = future.result()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Domain %s processing failed: %s", domain, exc)
+                    continue
+                _collect_domain_result(result, pending_snapshots, pending_jobs)
+
+    logger.debug(
+        "Domain resolution produced %s snapshots and %s metadata jobs in %.2fs",
+        len(pending_snapshots),
+        len(pending_jobs),
+        time.perf_counter() - resolution_started,
+    )
+
+    if pending_jobs:
+        fetch_started = time.perf_counter()
+        fetched_metadata = _fetch_metadata_batch(pending_jobs)
+        for metadata_uri, entry in fetched_metadata.items():
+            payload, gateway_url, cid = entry
+            _store_metadata_cache_entry(metadata_cache, metadata_uri, gateway_url, cid, payload)
+        logger.info(
+            "Fetched %s metadata payloads in %.2fs",
+            len(fetched_metadata),
+            time.perf_counter() - fetch_started,
+        )
+
     snapshots: List[AgentSnapshot] = []
-    metadata_cache: Dict[str, Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]] = {}
+    for item in pending_snapshots:
+        payload: Optional[Dict[str, Any]] = None
+        metadata_url = item.metadata_url
+        metadata_cid = item.metadata_cid
 
-    for domain in domains:
-        domain = (domain or "").strip()
-        if not domain:
-            continue
-
-        try:
-            agent_info = resolve_by_domain(domain)
-        except RuntimeError as exc:  # pragma: no cover - contract errors
-            logger.warning("Failed to resolve domain %s: %s", domain, exc)
-            continue
-
-        if not agent_info:
-            logger.warning("Domain %s resolved to empty agent info", domain)
-            continue
-
-        try:
-            registry_agent_id = int(agent_info[0])
-        except (TypeError, ValueError):
-            logger.warning("Unexpected agent id for domain %s: %s", domain, agent_info)
-            continue
-
-        registry_domain = agent_info[1] or domain
-        registry_address = agent_info[2]
-        metadata_uri = agent_info[3] if len(agent_info) > 3 else None
-
-        if metadata_uri in metadata_cache:
-            metadata_payload, metadata_url, metadata_cid = metadata_cache[metadata_uri]
-        else:
-            metadata_payload, metadata_url, metadata_cid = _fetch_metadata(metadata_uri)
-            metadata_cache[metadata_uri] = (metadata_payload, metadata_url, metadata_cid)
-
-        rep_info = _safe_reputation_lookup(registry_agent_id)
-        val_info = _safe_validation_lookup(registry_agent_id)
+        cache_entry = _get_cached_metadata_entry(metadata_cache, item.metadata_uri, item.metadata_cid)
+        if cache_entry:
+            payload, cached_url, cached_cid = cache_entry
+            metadata_url = cached_url or metadata_url
+            metadata_cid = cached_cid or metadata_cid
 
         snapshot = _build_snapshot(
-            registry_agent_id=registry_agent_id,
-            registry_domain=registry_domain,
-            registry_address=registry_address,
-            metadata_uri=metadata_uri,
-            metadata_payload=metadata_payload,
+            registry_agent_id=item.registry_agent_id,
+            registry_domain=item.registry_domain,
+            registry_address=item.registry_address,
+            metadata_uri=item.metadata_uri,
+            metadata_payload=payload,
             metadata_url=metadata_url,
             metadata_cid=metadata_cid,
-            reputation=rep_info,
-            validation=val_info,
+            reputation=item.reputation,
+            validation=item.validation,
         )
         snapshots.append(snapshot)
 
+    logger.info(
+        "Registry snapshot build completed in %.2fs (agents=%s)",
+        time.perf_counter() - started_at,
+        len(snapshots),
+    )
     return snapshots
+
+
+def _collect_domain_result(
+    result: Optional[_DomainProcessingResult],
+    pending_snapshots: List[_PendingSnapshot],
+    pending_jobs: Dict[str, MetadataFetchJob],
+) -> None:
+    if result is None:
+        return
+    if result.pending_snapshot:
+        pending_snapshots.append(result.pending_snapshot)
+    job = result.metadata_job
+    if job and job.metadata_uri:
+        pending_jobs[job.metadata_uri] = job
+
+
+def _process_domain_for_snapshot(
+    domain: str,
+    metadata_cache: Dict[str, Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]],
+) -> Optional[_DomainProcessingResult]:
+    domain = (domain or "").strip()
+    if not domain:
+        return None
+
+    try:
+        agent_info = resolve_by_domain(domain)
+    except RuntimeError as exc:  # pragma: no cover - contract errors
+        logger.warning("Failed to resolve domain %s: %s", domain, exc)
+        return None
+
+    if not agent_info:
+        logger.warning("Domain %s resolved to empty agent info", domain)
+        return None
+
+    try:
+        registry_agent_id = int(agent_info[0])
+    except (TypeError, ValueError):
+        logger.warning("Unexpected agent id for domain %s: %s", domain, agent_info)
+        return None
+
+    registry_domain = agent_info[1] or domain
+    registry_address = agent_info[2]
+    metadata_uri = agent_info[3] if len(agent_info) > 3 else None
+
+    metadata_cid: Optional[str] = None
+    metadata_url: Optional[str] = None
+
+    cache_entry = _get_cached_metadata_entry(metadata_cache, metadata_uri, None)
+    if cache_entry:
+        _, metadata_url, metadata_cid = cache_entry
+
+    metadata_job: Optional[MetadataFetchJob] = None
+    if metadata_uri and cache_entry is None:
+        resolved_url, resolved_cid = _resolve_metadata_uri(metadata_uri)
+        metadata_url = metadata_url or resolved_url
+        metadata_cid = metadata_cid or resolved_cid
+        cache_entry = _get_cached_metadata_entry(metadata_cache, None, resolved_cid)
+        if cache_entry is None:
+            job = _build_metadata_fetch_job(metadata_uri, resolved_url, resolved_cid)
+            if job:
+                metadata_job = job
+        else:
+            with _METADATA_CACHE_LOCK:
+                metadata_cache[metadata_uri] = cache_entry
+
+    rep_info = _safe_reputation_lookup(registry_agent_id)
+    val_info = _safe_validation_lookup(registry_agent_id)
+
+    pending_snapshot = _PendingSnapshot(
+        registry_agent_id=registry_agent_id,
+        registry_domain=registry_domain,
+        registry_address=registry_address,
+        metadata_uri=metadata_uri,
+        metadata_cid=metadata_cid,
+        metadata_url=metadata_url,
+        reputation=rep_info,
+        validation=val_info,
+    )
+
+    return _DomainProcessingResult(pending_snapshot=pending_snapshot, metadata_job=metadata_job)
+
+
+def _get_registry_worker_count(total_domains: int) -> int:
+    if total_domains <= 1:
+        return 1
+    default_workers = 8
+    env_value = os.getenv("AGENT_REGISTRY_WORKERS")
+    if env_value:
+        try:
+            parsed = int(env_value)
+            if parsed > 0:
+                default_workers = parsed
+        except ValueError:
+            logger.debug("Invalid AGENT_REGISTRY_WORKERS value: %s", env_value)
+    return max(1, min(default_workers, total_domains, 32))
+
+
+def _load_existing_metadata_cache() -> Dict[str, Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]]:
+    cache: Dict[str, Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]] = {}
+    session = SessionLocal()
+    try:
+        agents = (
+            session.query(Agent)
+            .filter(Agent.erc8004_metadata_uri.isnot(None))
+            .all()
+        )
+        for agent in agents:
+            metadata_uri = agent.erc8004_metadata_uri
+            if not metadata_uri:
+                continue
+            meta = agent.meta or {}
+            payload = meta.get("registry_metadata")
+            metadata_url = meta.get("metadata_gateway_url")
+            metadata_cid = meta.get("metadata_cid")
+            if payload is None and metadata_url is None:
+                continue
+            _store_metadata_cache_entry(cache, metadata_uri, metadata_url, metadata_cid, payload)
+    finally:
+        session.close()
+    return cache
+
+
+def _get_cached_metadata_entry(
+    cache: Dict[str, Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]],
+    metadata_uri: Optional[str],
+    metadata_cid: Optional[str],
+) -> Optional[Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]]:
+    if metadata_uri:
+        entry = cache.get(metadata_uri)
+        if entry:
+            return entry
+    if metadata_cid:
+        entry = cache.get(_metadata_cid_cache_key(metadata_cid))
+        if entry:
+            return entry
+    return None
+
+
+def _store_metadata_cache_entry(
+    cache: Dict[str, Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]],
+    metadata_uri: Optional[str],
+    metadata_url: Optional[str],
+    metadata_cid: Optional[str],
+    payload: Optional[Dict[str, Any]],
+) -> None:
+    if payload is None:
+        return
+    if metadata_uri:
+        cache[metadata_uri] = (payload, metadata_url, metadata_cid)
+    if metadata_cid:
+        cache[_metadata_cid_cache_key(metadata_cid)] = (payload, metadata_url, metadata_cid)
+
+
+def _metadata_cid_cache_key(cid: str) -> str:
+    return f"cid::{cid}"
+
+
+def _build_metadata_fetch_job(
+    metadata_uri: Optional[str],
+    resolved_url: Optional[str],
+    cid: Optional[str],
+) -> Optional[MetadataFetchJob]:
+    if not metadata_uri:
+        return None
+
+    urls: List[str] = []
+
+    def _add(url: Optional[str]) -> None:
+        if url and url not in urls:
+            urls.append(url)
+
+    _add(resolved_url)
+
+    if cid:
+        for gateway in _get_ipfs_gateways():
+            gateway = gateway.rstrip("/")
+            _add(f"{gateway}/{cid}")
+
+    if not urls:
+        return None
+
+    return MetadataFetchJob(metadata_uri=metadata_uri, cid=cid, urls=urls)
+
+
+def _get_ipfs_gateways() -> List[str]:
+    preferred = os.getenv("AGENT_METADATA_GATEWAY_URL", "https://gateway.pinata.cloud/ipfs")
+    fallbacks = [preferred, "https://cloudflare-ipfs.com/ipfs", "https://ipfs.io/ipfs"]
+    seen = set()
+    gateways: List[str] = []
+    for gateway in fallbacks:
+        gateway = (gateway or "").strip()
+        if not gateway:
+            continue
+        gateway = gateway.rstrip("/")
+        if gateway not in seen:
+            seen.add(gateway)
+            gateways.append(gateway)
+    return gateways
+
+
+def _fetch_metadata_batch(
+    jobs: Dict[str, MetadataFetchJob]
+) -> Dict[str, Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]]:
+    if not jobs:
+        return {}
+
+    max_workers = min(8, max(2, len(jobs)))
+    results: Dict[str, Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]] = {}
+
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="metadata-fetch") as executor:
+        future_map = {executor.submit(_fetch_metadata_from_job, job): job.metadata_uri for job in jobs.values()}
+        for future in as_completed(future_map):
+            metadata_uri = future_map[future]
+            job = jobs.get(metadata_uri)
+            try:
+                payload, url, cid = future.result()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Metadata fetch failed for %s: %s", metadata_uri, exc)
+                fallback_cid = job.cid if job else None
+                payload, url, cid = None, job.urls[0] if job and job.urls else None, fallback_cid
+            results[metadata_uri] = (payload, url, cid)
+
+    return results
+
+
+def _fetch_metadata_from_job(job: MetadataFetchJob) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
+    if not job.urls:
+        return None, None, job.cid
+
+    timeout = httpx.Timeout(6.0, connect=3.0)
+    limits = httpx.Limits(max_keepalive_connections=1, max_connections=1)
+    with httpx.Client(timeout=timeout, limits=limits) as client:
+        for url in job.urls:
+            try:
+                response = client.get(url)
+                response.raise_for_status()
+                if response.headers.get("Content-Type", "").startswith("application/json"):
+                    payload = response.json()
+                else:
+                    payload = json.loads(response.text)
+                return payload, url, job.cid
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "Metadata fetch attempt failed for %s via %s: %s",
+                    job.metadata_uri,
+                    url,
+                    exc,
+                )
+    fallback_url = job.urls[0]
+    return None, fallback_url, job.cid
 
 
 def _apply_snapshots(session: Session, snapshots: List[AgentSnapshot]) -> List[str]:
@@ -485,28 +833,6 @@ def _safe_validation_lookup(agent_id: int) -> Dict[str, Any]:
     except RuntimeError as exc:  # pragma: no cover - depends on configuration
         logger.warning("Validation registry unavailable for agent %s: %s", agent_id, exc)
         return {}
-
-
-def _fetch_metadata(metadata_uri: Optional[str]) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
-    if not metadata_uri:
-        return None, None, None
-
-    resolved_url, cid = _resolve_metadata_uri(metadata_uri)
-    if resolved_url is None:
-        return None, None, cid
-
-    try:
-        with httpx.Client(timeout=10.0) as client:
-            response = client.get(resolved_url)
-            response.raise_for_status()
-            if response.headers.get("Content-Type", "").startswith("application/json"):
-                payload = response.json()
-            else:
-                payload = json.loads(response.text)
-            return payload, resolved_url, cid
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to fetch metadata %s: %s", resolved_url, exc)
-        return None, resolved_url, cid
 
 
 def _resolve_metadata_uri(metadata_uri: str) -> Tuple[Optional[str], Optional[str]]:

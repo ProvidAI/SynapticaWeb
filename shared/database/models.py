@@ -266,3 +266,15 @@ class AgentRegistrySyncState(Base):
     last_attempted_at = Column(DateTime, nullable=True)
     last_successful_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
+
+
+class AgentsCacheEntry(Base):
+    """Persisted cache of serialized agents listing."""
+
+    __tablename__ = "agents_cache"
+
+    key = Column(String, primary_key=True)
+    payload = Column(JSON, nullable=False)
+    synced_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

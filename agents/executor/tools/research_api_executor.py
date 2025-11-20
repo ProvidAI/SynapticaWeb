@@ -21,7 +21,8 @@ MARKETPLACE_API_BASE_URL = (
     or "http://localhost:8000"
 )
 
-AGENT_DIRECTORY_URL = f"{MARKETPLACE_API_BASE_URL.rstrip('/')}/api/agents"
+AGENT_DIRECTORY_BASE_URL = f"{MARKETPLACE_API_BASE_URL.rstrip('/')}/api/agents"
+AGENT_DIRECTORY_LIST_URL = f"{AGENT_DIRECTORY_BASE_URL}/"
 
 # Simple in-memory cache for agent records to avoid repeated lookups
 _agent_cache: Dict[str, Dict[str, Any]] = {}
@@ -39,7 +40,7 @@ async def _fetch_agent_record(agent_id: str) -> Optional[Dict[str, Any]]:
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{AGENT_DIRECTORY_URL}/{agent_id}")
+            response = await client.get(f"{AGENT_DIRECTORY_BASE_URL}/{agent_id}")
             if response.status_code == 404:
                 return None
             response.raise_for_status()
@@ -128,11 +129,13 @@ async def list_research_agents() -> Dict[str, Any]:
             ]
         }
     """
-    logger.info("[list_research_agents] Fetching agents from %s", AGENT_DIRECTORY_URL)
+    logger.info(
+        "[list_research_agents] Fetching agents from %s", AGENT_DIRECTORY_LIST_URL
+    )
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(AGENT_DIRECTORY_URL)
+            response = await client.get(AGENT_DIRECTORY_LIST_URL)
             response.raise_for_status()
             data = response.json()
 

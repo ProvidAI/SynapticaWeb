@@ -1,5 +1,6 @@
 """Agent tools - Negotiator, Executor, and Verifier as callable tools."""
 
+import json
 import logging
 import os
 from typing import Any, Dict, Optional
@@ -27,7 +28,6 @@ from agents.negotiator.tools import (
 from agents.negotiator.tools.payment_tools import (
     authorize_payment as _authorize_payment,
 )
-from agents.verifier.system_prompt import VERIFIER_SYSTEM_PROMPT
 from agents.verifier.research_system_prompt import RESEARCH_VERIFIER_SYSTEM_PROMPT
 from agents.verifier.tools import (
     check_data_source_credibility,
@@ -460,7 +460,6 @@ async def executor_agent(
 async def _extract_verification_score(verifier_result: Dict[str, Any]) -> Dict[str, Any]:
     """Extract verification scores from verifier agent result with enhanced logging and robustness."""
     import re
-    import json
 
     response_text = verifier_result.get("response", "")
 
@@ -584,6 +583,7 @@ async def _request_human_verification(
 async def _wait_for_human_decision(task_id: str, todo_id: str, timeout: int = 3600) -> Dict[str, Any]:
     """Wait for human decision on verification (polls every 2 seconds, timeout after 1 hour)."""
     import asyncio
+
     from api.main import tasks_storage
 
     max_attempts = timeout // 2  # 2 second intervals
@@ -828,7 +828,6 @@ async def execute_microtask(
                 logger.error(f"[execute_microtask] ERROR: execution_parameters is {type(execution_parameters).__name__}, not dict! Converting to dict.")
                 # Try to parse as JSON if it's a string
                 if isinstance(execution_parameters, str):
-                    import json
                     try:
                         execution_parameters = json.loads(execution_parameters)
                         logger.info(f"[execute_microtask] Successfully parsed execution_parameters as JSON")
@@ -849,7 +848,6 @@ async def execute_microtask(
             executor_response_text = executor_result.get("response", "")
 
             # Try to parse as JSON if it's a JSON string
-            import json
             try:
                 executor_response_parsed = json.loads(executor_response_text)
                 # Ensure it's a dict, not a list or primitive
@@ -1013,7 +1011,9 @@ async def execute_microtask(
                     await release_payment(payment_id, "Approved by human reviewer")
 
                 # Update agent reputation after human approval
-                from agents.verifier.tools.reputation_tools import increase_agent_reputation
+                from agents.verifier.tools.reputation_tools import (
+                    increase_agent_reputation,
+                )
                 try:
                     reputation_result = await increase_agent_reputation(
                         agent_id=agent_domain or agent_name or "unknown",
@@ -1047,7 +1047,9 @@ async def execute_microtask(
                     await reject_and_refund(payment_id, decision.get("reason", "Rejected by human reviewer"))
 
                 # Decrease agent reputation after rejection
-                from agents.verifier.tools.reputation_tools import decrease_agent_reputation
+                from agents.verifier.tools.reputation_tools import (
+                    decrease_agent_reputation,
+                )
                 try:
                     reputation_result = await decrease_agent_reputation(
                         agent_id=agent_domain or agent_name or "unknown",
@@ -1131,9 +1133,6 @@ async def verifier_agent(
             "verification_mode": verification_mode,
             "payment_id": payment_id
         })
-
-        import json
-        from agents.verifier.tools.research_verification_tools import calculate_quality_score
 
         # CRITICAL FIX: Call calculate_quality_score directly instead of relying on LLM
         # This ensures the dict is passed correctly and avoids the 'str' has no attribute 'get' error
@@ -1247,6 +1246,8 @@ async def verifier_agent(
         """
 
         client = _get_a2a_client("VERIFIER_A2A_URL")
+        verifier_result_payload: Optional[Dict[str, Any]] = None
+
         if client:
             try:
                 response_text = await client.invoke_text(
@@ -1257,7 +1258,7 @@ async def verifier_agent(
                         "mode": verification_mode,
                     },
                 )
-                return {
+                verifier_result_payload = {
                     "success": True,
                     "task_id": task_id,
                     "payment_id": payment_id,
@@ -1271,84 +1272,113 @@ async def verifier_agent(
                     exc,
                 )
 
-        api_key = get_openai_api_key()
-        model = os.getenv("VERIFIER_MODEL", "gpt-4-turbo-preview")
+        if verifier_result_payload is None:
+            api_key = get_openai_api_key()
+            model = os.getenv("VERIFIER_MODEL", "gpt-4-turbo-preview")
 
-        # Use research mode with deterministic scoring tools
-        agent = create_openai_agent(
-            api_key=api_key,
-            model=model,
-            system_prompt=RESEARCH_VERIFIER_SYSTEM_PROMPT,
-            tools=[
-                # Core verification
-                verify_task_result,
-                validate_output_schema,
-                check_quality_metrics,
-                # Code execution
-                run_verification_code,
-                run_unit_tests,
-                validate_code_output,
-                # Web search & fact-checking
-                search_web,
-                verify_fact,
-                check_data_source_credibility,
-                research_best_practices,
-                # Research-specific tools with deterministic scoring
-                verify_research_output,
-                calculate_quality_score,
-                check_citation_quality,
-                validate_statistical_significance,
-                generate_feedback_report,
-                # Payment management
-                release_payment,
-                reject_and_refund,
-            ],
-        )
+            # Use research mode with deterministic scoring tools
+            agent = create_openai_agent(
+                api_key=api_key,
+                model=model,
+                system_prompt=RESEARCH_VERIFIER_SYSTEM_PROMPT,
+                tools=[
+                    # Core verification
+                    verify_task_result,
+                    validate_output_schema,
+                    check_quality_metrics,
+                    # Code execution
+                    run_verification_code,
+                    run_unit_tests,
+                    validate_code_output,
+                    # Web search & fact-checking
+                    search_web,
+                    verify_fact,
+                    check_data_source_credibility,
+                    research_best_practices,
+                    # Research-specific tools with deterministic scoring
+                    verify_research_output,
+                    calculate_quality_score,
+                    check_citation_quality,
+                    validate_statistical_significance,
+                    generate_feedback_report,
+                    # Payment management
+                    release_payment,
+                    reject_and_refund,
+                ],
+            )
 
-        # If we have pre-calculated scores, use them directly instead of calling the LLM
-        if quality_score_result:
-            logger.info("[verifier_agent] Using pre-calculated quality scores directly")
-            logger.info(f"[verifier_agent] Pre-calculated scores: {quality_score_result}")
+            # If we have pre-calculated scores, use them directly instead of calling the LLM
+            if quality_score_result:
+                logger.info("[verifier_agent] Using pre-calculated quality scores directly")
+                logger.info(f"[verifier_agent] Pre-calculated scores: {quality_score_result}")
 
-            # Format a response that includes the scores in a parseable format
-            response_with_scores = json.dumps({
-                "overall_score": quality_score_result.get("overall_score", 0),
-                "dimension_scores": quality_score_result.get("dimension_scores", {}),
-                "feedback": quality_score_result.get("feedback", "Quality analysis completed."),
-                "decision": quality_score_result.get("decision", "review_required"),
-                "verification_passed": quality_score_result.get("overall_score", 0) >= 70
-            }, indent=2)
+                # Format a response that includes the scores in a parseable format
+                response_with_scores = json.dumps({
+                    "overall_score": quality_score_result.get("overall_score", 0),
+                    "dimension_scores": quality_score_result.get("dimension_scores", {}),
+                    "feedback": quality_score_result.get("feedback", "Quality analysis completed."),
+                    "decision": quality_score_result.get("decision", "review_required"),
+                    "verification_passed": quality_score_result.get("overall_score", 0) >= 70
+                }, indent=2)
 
-            logger.info("[verifier_agent] ===== USING PRE-CALCULATED SCORES =====")
-            logger.info(f"[verifier_agent] {response_with_scores}")
+                logger.info("[verifier_agent] ===== USING PRE-CALCULATED SCORES =====")
+                logger.info(f"[verifier_agent] {response_with_scores}")
 
-            return {
-                "success": True,
-                "task_id": task_id,
-                "payment_id": payment_id,
-                "response": response_with_scores,
-                "transport": "direct_scoring",
-            }
-        else:
-            # Fallback to LLM if direct scoring failed
-            logger.warning("[verifier_agent] Direct scoring failed, falling back to LLM verification")
-            response = await agent.run(query)
+                verifier_result_payload = {
+                    "success": True,
+                    "task_id": task_id,
+                    "payment_id": payment_id,
+                    "response": response_with_scores,
+                    "transport": "direct_scoring",
+                }
+            else:
+                # Fallback to LLM if direct scoring failed
+                logger.warning("[verifier_agent] Direct scoring failed, falling back to LLM verification")
+                response = await agent.run(query)
 
-            # Log the full verifier response
-            logger.info("[verifier_agent] ===== VERIFIER RESPONSE START =====")
-            logger.info(f"[verifier_agent] {response}")
-            logger.info("[verifier_agent] ===== VERIFIER RESPONSE END =====")
+                # Log the full verifier response
+                logger.info("[verifier_agent] ===== VERIFIER RESPONSE START =====")
+                logger.info(f"[verifier_agent] {response}")
+                logger.info("[verifier_agent] ===== VERIFIER RESPONSE END =====")
 
-            return {
-                "success": True,
-                "task_id": task_id,
-                "payment_id": payment_id,
-                "response": str(response),
-                "transport": "local",
-            }
+                verifier_result_payload = {
+                    "success": True,
+                    "task_id": task_id,
+                    "payment_id": payment_id,
+                    "response": str(response),
+                    "transport": "local",
+                }
+
+        # Update progress that verification completed successfully
+        verifier_progress_data: Dict[str, Any] = {
+            "message": "✓ Verification completed",
+            "verification_mode": verification_mode,
+            "payment_id": payment_id,
+            "transport": verifier_result_payload.get("transport"),
+        }
+        try:
+            parsed_response = json.loads(verifier_result_payload.get("response", "{}"))
+            if isinstance(parsed_response, dict):
+                if "overall_score" in parsed_response:
+                    verifier_progress_data["quality_score"] = parsed_response.get("overall_score")
+                if "dimension_scores" in parsed_response:
+                    verifier_progress_data["dimension_scores"] = parsed_response.get("dimension_scores")
+                if "feedback" in parsed_response:
+                    verifier_progress_data["feedback"] = parsed_response.get("feedback")
+        except Exception as parse_error:
+            logger.debug(f"[verifier_agent] Unable to parse verifier response for progress update: {parse_error}")
+
+        update_progress(task_id, "verifier", "completed", verifier_progress_data)
+
+        return verifier_result_payload
 
     except Exception as e:
         logger.error(f"[verifier_agent] Verification failed: {e}", exc_info=True)
+        update_progress(task_id, "verifier", "failed", {
+            "message": "✗ Verification failed",
+            "error": str(e),
+            "payment_id": payment_id
+        })
         return {
             "success": False,
             "task_id": task_id,

@@ -1,8 +1,10 @@
 """FastAPI main application - Orchestrator Agent Entry Point."""
 
+import asyncio
+import logging
 import os
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -11,15 +13,15 @@ from fastapi import BackgroundTasks, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from shared.database import engine, Base, SessionLocal
-from shared.database.models import A2AEvent
-from .middleware import logging_middleware
-from agents.orchestrator.agent import create_orchestrator_agent
-from api.routes import agents as agents_routes
-import shared.task_progress as task_progress
-from agents.orchestrator.agent import create_orchestrator_agent
 from shared.database import Base, SessionLocal, engine
 from shared.database.models import A2AEvent
+from shared.registry_sync import (
+    RegistrySyncError,
+    ensure_registry_cache,
+    get_registry_cache_ttl_seconds,
+)
+import shared.task_progress as task_progress
+from agents.orchestrator.agent import create_orchestrator_agent
 
 from .middleware import logging_middleware
 from .routes import agents as agents_routes
@@ -29,6 +31,8 @@ load_dotenv()
 
 # In-memory task storage for progress tracking
 tasks_storage: Dict[str, Dict[str, Any]] = {}
+_registry_refresh_task: Optional[asyncio.Task] = None
+logger = logging.getLogger(__name__)
 
 
 def update_task_progress(task_id: str, step: str, status: str, data: Optional[Dict] = None):
@@ -99,15 +103,62 @@ class A2AEventResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown."""
+    global _registry_refresh_task
+
     # Startup: Create database tables
     Base.metadata.create_all(bind=engine)
     # Register progress callback for task updates
     task_progress.set_progress_callback(update_task_progress)
     print("Database initialized")
     print("Orchestrator agent ready")
+
+    loop = asyncio.get_running_loop()
+
+    def _prime_registry() -> Optional[str]:
+        try:
+            result = ensure_registry_cache()
+            if result:
+                return f"Primed registry cache with {result.synced} agents"
+            return "Registry cache already warm"
+        except RegistrySyncError as exc:
+            logger.warning("Initial registry sync failed: %s", exc)
+            return None
+
+    prime_message = await loop.run_in_executor(None, _prime_registry)
+    if prime_message:
+        logger.info(prime_message)
+
+    _registry_refresh_task = loop.create_task(_periodic_registry_refresh())
     yield
     # Shutdown
+    if _registry_refresh_task:
+        _registry_refresh_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await _registry_refresh_task
+        _registry_refresh_task = None
     print("Shutting down...")
+
+
+async def _periodic_registry_refresh() -> None:
+    """Run registry cache refreshes on the configured TTL."""
+
+    while True:
+        interval = max(60, get_registry_cache_ttl_seconds())
+        await asyncio.sleep(interval)
+        loop = asyncio.get_running_loop()
+
+        def _refresh() -> Optional[str]:
+            result = ensure_registry_cache()
+            if result:
+                return f"Periodic registry sync refreshed {result.synced} agents"
+            return None
+
+        try:
+            message = await loop.run_in_executor(None, _refresh)
+            if message:
+                logger.debug(message)
+        except RegistrySyncError as exc:
+            logger.warning("Periodic registry sync failed: %s", exc)
 
 
 # Create FastAPI app
@@ -422,9 +473,6 @@ def list_a2a_events(limit: int = 50) -> List[A2AEventResponse]:
 
 async def run_orchestrator_task(task_id: str, request: TaskRequest):
     """Background task to run the orchestrator agent."""
-    import logging
-    logger = logging.getLogger(__name__)
-
     try:
         # Create Task record in database for transaction history
         from datetime import datetime

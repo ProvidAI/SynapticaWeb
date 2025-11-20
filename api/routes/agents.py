@@ -14,10 +14,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from shared.database import Agent, AgentReputation, SessionLocal, get_db
+from shared.agent_utils import serialize_agent
+from shared.agents_cache import (
+    build_agents_payload,
+    get_cached_agents_payload,
+    rebuild_agents_cache,
+)
 from shared.registry_sync import (
-    RegistrySyncError,
-    ensure_registry_cache,
+    ensure_registry_cache as _ensure_registry_cache,
     get_registry_sync_status,
+    trigger_registry_cache_refresh,
 )
 from shared.metadata import (
     AgentMetadataPayload,
@@ -33,6 +39,9 @@ from shared.registry import (
 )
 
 router = APIRouter()
+
+# Maintain backwards compatibility for callers/tests that patch ensure_registry_cache directly.
+ensure_registry_cache = _ensure_registry_cache
 
 logger = logging.getLogger(__name__)
 AUDIT_LOGGER = logging.getLogger("agent_registration")
@@ -188,93 +197,6 @@ def _require_admin_token(provided: Optional[str]) -> None:
         )
 
 
-def _coerce_rate(value: Any) -> float:
-    """Attempt to convert a stored rate into a float."""
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        match = re.search(r"([0-9]*\.?[0-9]+)", value)
-        if match:
-            return float(match.group(1))
-    return 0.0
-
-
-def _extract_pricing(meta: Dict[str, Any]) -> AgentPricing:
-    """Return pricing info, coercing stored metadata as needed."""
-    pricing_dict = meta.get("pricing") or {}
-    if not isinstance(pricing_dict, dict):
-        pricing_dict = {}
-
-    rate = _coerce_rate(pricing_dict.get("rate") or pricing_dict.get("base_rate"))
-    currency = (
-        pricing_dict.get("currency")
-        or pricing_dict.get("currency_code")
-        or "HBAR"
-    )
-    rate_type = (
-        pricing_dict.get("rate_type")
-        or pricing_dict.get("rateType")
-        or pricing_dict.get("unit")
-        or "per_task"
-    )
-
-    return AgentPricing(
-        rate=rate,
-        currency=currency,
-        rate_type=rate_type,
-    )
-
-
-def _normalize_reputation_score(value: Any) -> Optional[float]:
-    """Best-effort normalization for reputation inputs."""
-    try:
-        score = float(value)
-    except (TypeError, ValueError):
-        return None
-    if score > 1:
-        score = score / 100.0
-    return max(0.0, min(1.0, score))
-
-
-def _serialize_agent(agent: Agent, reputation_score: Optional[float] = None) -> AgentResponse:
-    """Convert an Agent ORM instance into API response."""
-    meta: Dict[str, Any] = agent.meta or {}
-    metadata_cid = meta.get("metadata_cid")
-
-    score = reputation_score
-    if score is None:
-        registry_rep = meta.get("registry_reputation") or {}
-        score = _normalize_reputation_score(registry_rep.get("reputationScore"))
-
-    registry_meta: Dict[str, Any] = meta.get("registry") or {}
-
-    return AgentResponse(
-        agent_id=agent.agent_id,
-        name=agent.name,
-        description=agent.description,
-        capabilities=agent.capabilities or [],
-        categories=meta.get("categories") or [],
-        status=agent.status or "inactive",
-        endpoint_url=meta.get("endpoint_url"),
-        health_check_url=meta.get("health_check_url"),
-        pricing=_extract_pricing(meta),
-        contact_email=meta.get("contact_email"),
-        logo_url=meta.get("logo_url"),
-        erc8004_metadata_uri=agent.erc8004_metadata_uri,
-        metadata_cid=metadata_cid,
-        metadata_gateway_url=meta.get("metadata_gateway_url")
-        or (f"https://gateway.pinata.cloud/ipfs/{metadata_cid}" if metadata_cid else None),
-        hedera_account_id=agent.hedera_account_id,
-        created_at=agent.created_at.isoformat() if agent.created_at else None,
-        reputation_score=score,
-        registry_status=registry_meta.get("status"),
-        registry_agent_id=registry_meta.get("agent_id"),
-        registry_tx_hash=registry_meta.get("tx_hash"),
-        registry_last_error=registry_meta.get("last_error"),
-        registry_updated_at=registry_meta.get("updated_at"),
-    )
-
-
 def _set_registry_status(
     agent: Agent,
     *,
@@ -286,8 +208,8 @@ def _set_registry_status(
 ) -> None:
     """Persist registry status metadata on the agent."""
 
-    meta: Dict[str, Any] = agent.meta or {}
-    registry_meta: Dict[str, Any] = meta.get("registry") or {}
+    meta: Dict[str, Any] = dict(agent.meta or {})
+    registry_meta: Dict[str, Any] = dict(meta.get("registry") or {})
     registry_meta["status"] = status
     registry_meta["updated_at"] = datetime.utcnow().isoformat()
     if agent_id is not None:
@@ -357,50 +279,41 @@ def _trigger_registry_registration(agent_id: str) -> None:
         db.close()
 
 
-def _is_registry_managed(agent: Agent) -> bool:
-    """Return True when the agent was sourced from the registry sync."""
-    meta: Dict[str, Any] = agent.meta or {}
-    return bool(meta.get("registry_managed"))
-
-
 @router.get("/", response_model=AgentsListResponse)
-async def list_agents(db: Session = Depends(get_db)) -> AgentsListResponse:
+async def list_agents() -> AgentsListResponse:
     """List all registered agents."""
     sync_status = "unknown"
     synced_at = None
     try:
-        ensure_registry_cache()
-    except RegistrySyncError as exc:
-        logger.warning("Registry sync failed: %s", exc)
+        if trigger_registry_cache_refresh():
+            logger.debug("Background registry sync triggered for stale cache")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to trigger registry sync: %s", exc)
 
     status_value, synced_dt = get_registry_sync_status()
     sync_status = status_value
     if synced_dt:
         synced_at = synced_dt.isoformat()
 
-    agents = db.query(Agent).order_by(Agent.created_at.desc()).all()
-    registry_agents = [agent for agent in agents if _is_registry_managed(agent)]
-    source = registry_agents or agents
+    payload = get_cached_agents_payload()
+    if payload is None:
+        try:
+            payload = rebuild_agents_cache(synced_at=synced_dt)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to rebuild agents cache on demand; falling back to live query")
+            payload = build_agents_payload()
+        if synced_dt and not payload.get("synced_at"):
+            payload["synced_at"] = synced_dt.isoformat()
 
-    reputation_map: Dict[str, float] = {}
-    agent_ids = [agent.agent_id for agent in source]
-    if agent_ids:
-        records = (
-            db.query(AgentReputation)
-            .filter(AgentReputation.agent_id.in_(agent_ids))
-            .all()
-        )
-        reputation_map = {record.agent_id: record.reputation_score for record in records}
-
-    serialized = [
-        _serialize_agent(agent, reputation_map.get(agent.agent_id)) for agent in source
-    ]
+    payload_synced_at = payload.get("synced_at") or synced_at
+    agents_payload = payload.get("agents", [])
+    responses = [AgentResponse(**item) for item in agents_payload]
 
     return AgentsListResponse(
-        total=len(serialized),
-        agents=serialized,
+        total=payload.get("total", len(responses)),
+        agents=responses,
         sync_status=sync_status,
-        synced_at=synced_at,
+        synced_at=payload_synced_at,
     )
 
 
@@ -416,7 +329,7 @@ async def get_agent(agent_id: str, db: Session = Depends(get_db)) -> AgentRespon
         .one_or_none()
     )
     score = reputation.reputation_score if reputation else None
-    return _serialize_agent(agent, score)
+    return AgentResponse(**serialize_agent(agent, score))
 
 
 @router.post("/", response_model=AgentSubmissionResponse, status_code=status.HTTP_201_CREATED)
@@ -512,9 +425,10 @@ async def register_agent(
         ) from exc
 
     agent.erc8004_metadata_uri = upload_result.ipfs_uri
-    meta["metadata_cid"] = upload_result.cid
-    meta["metadata_gateway_url"] = upload_result.gateway_url
-    agent.meta = meta
+    updated_meta = dict(meta)
+    updated_meta["metadata_cid"] = upload_result.cid
+    updated_meta["metadata_gateway_url"] = upload_result.gateway_url
+    agent.meta = updated_meta
 
     _set_registry_status(
         agent,
@@ -528,7 +442,7 @@ async def register_agent(
 
     background_tasks.add_task(_trigger_registry_registration, agent.agent_id)
 
-    response = _serialize_agent(agent, reputation_score=reputation.reputation_score)
+    response = serialize_agent(agent, reputation_score=reputation.reputation_score)
     operator_checklist = [
         "Review metadata JSON via provided gateway link.",
         "Registry registration is running in the background; monitor `registry_status`/`registry_last_error`.",
@@ -544,8 +458,13 @@ async def register_agent(
     }
     AUDIT_LOGGER.info("agent_registration", extra={"payload": payload_summary})
 
+    try:
+        rebuild_agents_cache()
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to rebuild agents cache after registering %s", agent.agent_id, exc_info=True)
+
     response_payload = {
-        **response.model_dump(),
+        **response,
         "metadata_gateway_url": upload_result.gateway_url,
         "metadata_cid": upload_result.cid,
         "operator_checklist": operator_checklist,

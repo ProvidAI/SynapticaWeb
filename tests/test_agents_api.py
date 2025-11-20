@@ -4,13 +4,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
-from shared.database import Agent as AgentModel, AgentReputation, SessionLocal
+from shared.database import (
+    Agent as AgentModel,
+    AgentReputation,
+    AgentsCacheEntry,
+    SessionLocal,
+)
 from shared.metadata.publisher import PinataUploadResult
 
 
 def _clear_agents():
     session = SessionLocal()
     try:
+        session.query(AgentsCacheEntry).delete()
         session.query(AgentReputation).delete()
         session.query(AgentModel).delete()
         session.commit()
@@ -23,6 +29,7 @@ def client(monkeypatch):
     _clear_agents()
 
     monkeypatch.setattr("api.routes.agents.ensure_registry_cache", lambda force=False: None)
+    monkeypatch.setattr("api.routes.agents.trigger_registry_cache_refresh", lambda: False)
     monkeypatch.setattr("api.routes.agents.get_registry_sync_status", lambda: ("test", None))
     monkeypatch.setattr("api.routes.agents._trigger_registry_registration", lambda agent_id: None)
 
