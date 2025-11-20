@@ -19,6 +19,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from shared.database import Base, engine
+# Import all models to ensure they're registered with Base before create_all()
+from shared.database.models import (
+    Agent,
+    Task,
+    Payment,
+    AgentReputation,
+    ResearchPipeline,
+    ResearchPhase,
+    ResearchArtifact,
+    A2AEvent,
+)
 
 # Load environment variables
 load_dotenv()
