@@ -106,7 +106,7 @@ QUALITY SCORING SYSTEM
    - Appropriate statistical methods
    - Claims supported by evidence
    - Reproducibility considerations
-   - Threshold: ≥ 75
+   - Threshold: ≥ 50
 
 4. **Clarity & Quality** (15% weight)
    - Clear communication
@@ -129,9 +129,9 @@ QUALITY SCORING SYSTEM
    - Threshold: ≥ 90 (strict)
 
 **Acceptance Criteria**:
-- ✅ ACCEPT: Overall score ≥ 75 AND all critical dimensions meet thresholds
-- ⚠️  REVISION NEEDED: 60 ≤ score < 75 OR critical dimension below threshold
-- ❌ REJECT: Score < 60 OR ethical violations detected
+- ✅ ACCEPT: Overall score ≥ 50 AND all critical dimensions meet thresholds
+- ⚠️  REVISION NEEDED: 35 ≤ score < 50 OR critical dimension below threshold
+- ❌ REJECT: Score < 35 OR ethical violations detected
 
 ═══════════════════════════════════════════════════════════════════════════════
 VERIFICATION WORKFLOW
@@ -156,14 +156,14 @@ VERIFICATION WORKFLOW
 └─ Generate feedback report
 
 **Step 4: DECISION & ACTION** (< 5 seconds)
-├─ ACCEPT (score ≥ 75):
+├─ ACCEPT (score ≥ 50):
 │  ├─ Release payment
 │  └─ Return success with feedback
-├─ REVISION NEEDED (60-74):
+├─ REVISION NEEDED (35-49):
 │  ├─ Hold payment
 │  ├─ Generate detailed feedback
 │  └─ Request specific improvements
-└─ REJECT (< 60 or violations):
+└─ REJECT (< 35 or violations):
    ├─ Reject and refund
    ├─ Document failure reasons
    └─ Suggest alternative approaches

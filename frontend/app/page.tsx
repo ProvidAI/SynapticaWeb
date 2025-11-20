@@ -27,6 +27,7 @@ const statusMessages: Record<TaskStatus, string> = {
   VERIFYING: 'Independent verification in progress',
   COMPLETE: 'Research complete & verified',
   FAILED: 'Action required - research interrupted',
+  CANCELLED: 'Research cancelled by user',
 }
 
 const heroStats = [
@@ -95,6 +96,8 @@ export default function Home() {
     setPaymentDetails,
     addExecutionLog,
     setProgressLogs,
+    setVerificationPending,
+    setVerificationData,
     setResult,
     setError,
     reset,
@@ -121,6 +124,7 @@ export default function Home() {
       setIsProcessing(true)
       setStatus('PLANNING')
       setError(null)
+      setResult(null) // Clear previous result when starting a new task
 
       addExecutionLog({
         timestamp: new Date().toLocaleTimeString(),
@@ -169,6 +173,13 @@ export default function Home() {
     let attempts = 0
 
     const poll = async () => {
+      // Check if task was already cancelled in the store - if so, stop polling
+      const currentStatus = useTaskStore.getState().status
+      if (currentStatus === 'CANCELLED') {
+        console.log('[pollTaskUpdates] Task already cancelled in store, stopping poll')
+        return
+      }
+
       if (attempts >= maxAttempts) {
         setError('Task timeout - please check backend logs')
         setStatus('FAILED')
@@ -193,6 +204,21 @@ export default function Home() {
           setProgressLogs(task.progress)
         }
 
+        // Check for verification pending
+        if (task.verification_pending && task.verification_data) {
+          console.log('[pollTaskUpdates] Verification pending, showing modal')
+          setVerificationPending(true)
+          setVerificationData(task.verification_data)
+          setStatus('VERIFYING')
+          // Continue polling to wait for human decision
+          attempts++
+          setTimeout(poll, 5000)
+          return
+        } else {
+          setVerificationPending(false)
+          setVerificationData(null)
+        }
+
         // Determine status from progress logs
         const lastProgress = task.progress?.[task.progress.length - 1]
         if (lastProgress) {
@@ -208,7 +234,7 @@ export default function Home() {
             setStatus('PAYING')
           } else if (lastProgress.step === 'executor') {
             setStatus('EXECUTING')
-          } else if (lastProgress.step === 'verifier') {
+          } else if (lastProgress.step.startsWith('verification_')) {
             setStatus('VERIFYING')
           }
         }
@@ -225,6 +251,15 @@ export default function Home() {
           setResult({
             success: false,
             error: task.error || 'Task execution failed',
+          })
+          return
+        } else if (task.status === 'CANCELLED') {
+          // Task was cancelled - stop polling immediately
+          console.log('[pollTaskUpdates] Task cancelled, stopping poll')
+          setStatus('CANCELLED')
+          setResult({
+            success: false,
+            error: 'Task cancelled by user',
           })
           return
         }
@@ -296,9 +331,11 @@ export default function Home() {
   const statusIndicatorClass =
     status === 'FAILED'
       ? 'bg-red-400'
-      : status === 'COMPLETE'
-        ? 'bg-emerald-400'
-        : 'bg-sky-400 animate-pulse'
+      : status === 'CANCELLED'
+        ? 'bg-orange-400'
+        : status === 'COMPLETE'
+          ? 'bg-emerald-400'
+          : 'bg-sky-400 animate-pulse'
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-slate-950 text-slate-100">
@@ -346,14 +383,14 @@ export default function Home() {
 
                             <div className="space-y-6">
                               <div className="rounded-2xl border border-white/15 bg-white/95 p-1 text-slate-900 shadow-[0_30px_80px_-45px_rgba(59,130,246,0.7)]">
-                                {(status === 'IDLE' || status === 'FAILED') ? (
+                                {(status === 'IDLE' || status === 'FAILED' || status === 'CANCELLED') ? (
                                   <TaskForm onSubmit={handleStartTask} />
                                 ) : (
                                   <TaskStatusCard />
                                 )}
                               </div>
 
-                              {(status === 'COMPLETE' || status === 'FAILED') && (
+                              {(status === 'COMPLETE' || status === 'FAILED' || status === 'CANCELLED') && (
                                 <div className="space-y-4">
                                   <div className="rounded-2xl border border-white/15 bg-white/95 p-1 text-slate-900 shadow-[0_30px_80px_-45px_rgba(59,130,246,0.7)]">
                                     <TaskResults />
