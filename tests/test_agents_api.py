@@ -4,13 +4,19 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
-from shared.database import Agent as AgentModel, AgentReputation, SessionLocal
+from shared.database import (
+    Agent as AgentModel,
+    AgentReputation,
+    AgentsCacheEntry,
+    SessionLocal,
+)
 from shared.metadata.publisher import PinataUploadResult
 
 
 def _clear_agents():
     session = SessionLocal()
     try:
+        session.query(AgentsCacheEntry).delete()
         session.query(AgentReputation).delete()
         session.query(AgentModel).delete()
         session.commit()
