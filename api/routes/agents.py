@@ -15,9 +15,9 @@ from sqlalchemy.orm import Session
 
 from shared.database import Agent, AgentReputation, SessionLocal, get_db
 from shared.registry_sync import (
-    RegistrySyncError,
-    ensure_registry_cache,
+    ensure_registry_cache as _ensure_registry_cache,
     get_registry_sync_status,
+    trigger_registry_cache_refresh,
 )
 from shared.metadata import (
     AgentMetadataPayload,
@@ -33,6 +33,9 @@ from shared.registry import (
 )
 
 router = APIRouter()
+
+# Maintain backwards compatibility for callers/tests that patch ensure_registry_cache directly.
+ensure_registry_cache = _ensure_registry_cache
 
 logger = logging.getLogger(__name__)
 AUDIT_LOGGER = logging.getLogger("agent_registration")
@@ -286,8 +289,8 @@ def _set_registry_status(
 ) -> None:
     """Persist registry status metadata on the agent."""
 
-    meta: Dict[str, Any] = agent.meta or {}
-    registry_meta: Dict[str, Any] = meta.get("registry") or {}
+    meta: Dict[str, Any] = dict(agent.meta or {})
+    registry_meta: Dict[str, Any] = dict(meta.get("registry") or {})
     registry_meta["status"] = status
     registry_meta["updated_at"] = datetime.utcnow().isoformat()
     if agent_id is not None:
@@ -369,9 +372,10 @@ async def list_agents(db: Session = Depends(get_db)) -> AgentsListResponse:
     sync_status = "unknown"
     synced_at = None
     try:
-        ensure_registry_cache()
-    except RegistrySyncError as exc:
-        logger.warning("Registry sync failed: %s", exc)
+        if trigger_registry_cache_refresh():
+            logger.debug("Background registry sync triggered for stale cache")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to trigger registry sync: %s", exc)
 
     status_value, synced_dt = get_registry_sync_status()
     sync_status = status_value
@@ -512,9 +516,10 @@ async def register_agent(
         ) from exc
 
     agent.erc8004_metadata_uri = upload_result.ipfs_uri
-    meta["metadata_cid"] = upload_result.cid
-    meta["metadata_gateway_url"] = upload_result.gateway_url
-    agent.meta = meta
+    updated_meta = dict(meta)
+    updated_meta["metadata_cid"] = upload_result.cid
+    updated_meta["metadata_gateway_url"] = upload_result.gateway_url
+    agent.meta = updated_meta
 
     _set_registry_status(
         agent,

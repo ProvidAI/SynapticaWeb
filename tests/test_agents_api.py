@@ -23,6 +23,7 @@ def client(monkeypatch):
     _clear_agents()
 
     monkeypatch.setattr("api.routes.agents.ensure_registry_cache", lambda force=False: None)
+    monkeypatch.setattr("api.routes.agents.trigger_registry_cache_refresh", lambda: False)
     monkeypatch.setattr("api.routes.agents.get_registry_sync_status", lambda: ("test", None))
     monkeypatch.setattr("api.routes.agents._trigger_registry_registration", lambda agent_id: None)
 
