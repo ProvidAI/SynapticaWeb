@@ -944,7 +944,7 @@ async def execute_microtask(
             }
 
         # Decision logic: Auto-approve if score >= 70 AND ethics >= 80
-        if quality_score >= 90 and ethics_score >= 90:
+        if quality_score >= 95 and ethics_score >= 95:
             # Auto-approve
             logger.info(f"[execute_microtask] Auto-approving payment {payment_id} (score: {quality_score})")
             update_progress(task_id, f"verification_{todo_id}", "completed", {
