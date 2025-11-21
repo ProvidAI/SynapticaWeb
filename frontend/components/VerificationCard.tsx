@@ -87,7 +87,7 @@ export function VerificationCard() {
         <div className="flex-1">
           <h3 className="text-lg font-bold text-sky-700">Review Required</h3>
           <p className="text-sm text-slate-600">
-            Quality score below auto-approval threshold. Please review the output.
+            Auto-approval requires Quality ≥50 and Ethics ≥50. Please review the output.
           </p>
         </div>
       </div>
@@ -132,7 +132,7 @@ export function VerificationCard() {
           {!ethics_passed && (
             <div className="mt-2 flex items-center gap-1 text-xs text-red-600">
               <XCircle className="h-3 w-3" />
-              <span>Ethics check failed</span>
+              <span>Ethics: {dimension_scores.ethics || 0}/100 (requires 50+)</span>
             </div>
           )}
         </div>
@@ -274,11 +274,26 @@ export function VerificationCard() {
 
       {/* Payment Notice */}
       <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50/50 p-2 text-center text-xs text-slate-600">
-        {quality_score < 50 && !ethics_passed
-          ? '⚠️ Low quality score and ethics violation'
-          : quality_score < 50
-            ? '⚠️ Quality score below threshold (50)'
-            : '⚠️ Ethics check did not pass (score < 90)'}
+        {(() => {
+          const failedDimensions = Object.entries(dimension_scores)
+            .filter(([dim, score]) => !getDimensionStatus(dim, score))
+            .map(([dim]) => dim.replace(/_/g, ' '))
+
+          const ethicsScore = dimension_scores.ethics || 0
+          const qualityBelowThreshold = quality_score < 50
+          const ethicsBelowThreshold = ethicsScore < 50
+
+          if (qualityBelowThreshold && ethicsBelowThreshold) {
+            return `⚠️ Quality score below 50 (${quality_score}/100) and Ethics below 50 (${ethicsScore}/100)`
+          } else if (qualityBelowThreshold) {
+            return `⚠️ Quality score below threshold: ${quality_score}/100 (requires 50+)`
+          } else if (ethicsBelowThreshold) {
+            return `⚠️ Ethics score below threshold: ${ethicsScore}/100 (requires 50+)`
+          } else if (failedDimensions.length > 0) {
+            return `⚠️ Failed dimensions: ${failedDimensions.join(', ')}`
+          }
+          return '⚠️ Requires human review'
+        })()}
       </div>
     </div>
   )
