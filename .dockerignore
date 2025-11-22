@@ -1,0 +1,61 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv/
+ENV/
+env/
+.mypy_cache
+.pytest_cache
+.ruff_cache
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+
+# Frontend (not needed in backend image)
+frontend/
+node_modules/
+
+# Documentation
+*.md
+docs/
+
+# Tests
+tests/
+*.test.py
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Deployment files
+docker-compose.yml
+Dockerfile
+.dockerignore
+deploy-ec2.sh
+nginx.conf
+
+# SSL
+ssl/
+*.pem
+*.key
+*.crt
